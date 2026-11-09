@@ -1,6 +1,6 @@
 # Mars — Réparer la propulsion
 
-Une simulation pédagogique 3D en JavaScript, Vite et Three.js. Les trois premières étapes se réalisent dans la scène : mise hors tension, ouverture de la trappe, inspection et remplacement des fils. Les erreurs ont des conséquences visibles et sont consignées. Les boutons de test permettent de parcourir les deux dernières étapes, dont les gestes restent à développer.
+Une simulation pédagogique 3D en JavaScript, Vite et Three.js. Les cinq étapes se réalisent avec les gestes de la scène ou leurs équivalents clavier : mise hors tension, ouverture, remplacement des fils, fermeture et test final. Les erreurs sont consignées dans un bilan noté sur 20, exportable en JSON.
 
 ## Lancer le projet
 
@@ -14,7 +14,7 @@ npm run dev
 Ouvre l’adresse affichée par Vite. La configuration utilise un chemin relatif (`base: './'`) pour s’adapter à l’emplacement de publication.
 
 ```sh
-npm test          # 75 tests : scène, progression, sécurité, gestes et faisceau
+npm test          # 96 tests : scène, cinq étapes, sécurité, bilan et reprise après défaut
 npm run test:browser # Parcours fonctionnel dans Chromium ; lance son serveur Vite
 npm run build    # Produit le site statique dans dist/
 npm run preview  # Sert le build compilé, au même chemin
@@ -45,8 +45,11 @@ export npm_config_cache=/workspace/.environment/npm-cache
 - Six fils colorés, dont un ou deux sont sectionnés à chaque nouvelle partie : coupures, brins de cuivre, surbrillance au survol et gros plan au clic.
 - Diagnostic sous la lampe, déclaration des coupures, bornes desserrées puis resserrées d’un tour, retrait du fil et remplacement de la bonne couleur.
 - Isolant qui se rétracte à la pince, cuivre visible, fil neuf souple suivant le curseur et aimantation à moins de 2 cm de la borne correspondante.
+- Fermeture par poussée, quatre tours horaires par vis, avertissement non bloquant sur l’ordre en croix et vérification du serrage.
+- Remontée du levier, fermeture du capot, test électrique de deux secondes, extinction du voyant, grondement de démarrage et légère vibration.
+- Bilan avec temps actif, erreurs et règles par étape, indices, avertissements et note ; téléchargement JSON et nouvelle partie.
 
-La caméra, la lampe, les outils et la validation sont verrouillés avant la fin du briefing. Les trois premières étapes ne peuvent pas être validées par debug. Les deux dernières conservent leurs boutons de test.
+La caméra, la lampe, les outils et les gestes sont verrouillés avant la fin du briefing. Aucune des cinq étapes ne peut être validée par debug. Les anciens boutons de test ont été retirés.
 
 ## Étape 1 — Mise hors tension
 
@@ -96,6 +99,37 @@ Le panneau **Inspection et remplacement des fils** fournit tous les équivalents
 
 **Échap**, le changement d’outil, l’extinction de la lampe, une perte de capture ou de fenêtre, et la relecture du briefing annulent le geste courant. Les inspections, déclarations, tours déjà effectués, extrémités déjà dénudées et raccordements validés restent acquis. La caméra reste stable pendant les gestes. En Évaluation, les effets et diagnostics physiques restent visibles ; les erreurs et leurs explications pédagogiques sont réservées au bilan.
 
+## Étape 4 — Fermeture et revissage
+
+1. Saisir la **trappe ouverte**, de préférence près de son bord droit, et la pousser **vers la droite** jusqu’à fermeture, puis relâcher. La fermeture se termine avec inertie et un clac. Un geste incomplet ne permet pas de revisser.
+2. Choisir le **cruciforme**. Sur chaque vis, maintenir le clic et faire **quatre tours horaires**. Les vis tournent et rentrent réellement en 3D. Le compteur affiche le nombre de vis serrées.
+3. Suivre l’ordre recommandé : **haut gauche → bas droite → haut droite → bas gauche**. Un autre ordre ajoute un **avertissement**, sans erreur ni pénalité. La trappe reste légèrement de travers jusqu’au serrage de la dernière vis.
+4. Activer **Vérifier le serrage** dans le panneau **Fermeture et serrage**. Si une vis est encore desserrée, la suite reste bloquée : **« Une vis n’est pas serrée »**, avec une erreur consignée. Quatre vis serrées et une trappe fermée autorisent l’étape 5.
+
+**Au clavier** : focaliser le curseur de trappe et maintenir **→**, ou **Origine / Home** pour fermer complètement, puis relâcher. Choisir chaque vis puis maintenir **Q** : le sens devient horaire à cette étape. Utiliser ensuite **Vérifier le serrage**. Échap annule le geste en cours ; les tours déjà réalisés sont conservés. Le tournevis plat dérape toujours et la vis centrale de sécurité reste protégée.
+
+## Étape 5 — Remise sous tension et test
+
+1. Dans le boîtier, saisir le levier et le **remonter** au-delà de 70 % de sa course, puis relâcher. La LED POWER devient verte et le HUD affiche **Tension : ON**. Un geste trop court ou annulé revient à la position hors tension.
+2. Cliquer sur le capot rouge pour le **refermer** en 0,4 seconde. Le test démarre à la fin de cette fermeture.
+3. Attendre **deux secondes**. Les gestes sont verrouillés pendant le contrôle. Si les raccordements sont corrects, l’alarme rouge et le bip s’arrêtent, un grondement montant et une légère vibration accompagnent le démarrage. Inès confirme : **« Propulsion opérationnelle. Bon travail. »**
+
+**Au clavier** : ouvrir **Commandes au clavier**, focaliser le levier, maintenir **↑** ou utiliser **Origine / Home**, puis relâcher. Activer **Refermer le capot rouge**.
+
+Le test inspecte les données électriques réelles : fil remplacé avec la bonne couleur, cuivre dénudé, deux extrémités raccordées et deux bornes serrées. Il ne se fie pas à une ancienne coche « Réparé ». Si un défaut subsiste, l’alarme continue, le défaut est consigné et la procédure revient à l’étape 1 **avec le courant toujours allumé**. Il faut relever le capot et recouper avant de dévisser. Le matériel et les réparations restent en place ; seule la procédure et le diagnostic sont repris. L’étape 3 impose déjà une réparation complète dans le parcours normal ; les scénarios de défaut sont également vérifiés sur des états matériels préparés dans les tests unitaires, sans bouton de simulation ajouté au jeu.
+
+La relecture du briefing suspend le chrono et le délai du test. Les effets sonores respectent **Son** ; la vibration de démarrage respecte la préférence de réduction des animations.
+
+## Bilan et barème
+
+Le bilan apparaît après le test réussi : **temps actif total**, erreurs par étape avec leur libellé et la règle à retenir, indices utilisés, avertissements et **note sur 20**. Le temps s’arrête au résultat, sans compter l’accueil, les briefings ou le débriefing.
+
+Barème choisi, visible dans le bilan : départ à **20**, **−3 par contact sous tension**, **−1 par autre erreur**, **−0,5 par indice consulté** ; minimum **0**. Le temps et les avertissements d’ordre en croix ne retirent pas de point. Exemple : une vérification avec une vis desserrée et un indice donnent **18,5 / 20**. Une mission sans erreur ni indice donne **20 / 20**.
+
+**Exporter le bilan** télécharge `bilan-propulsion.json` directement dans le navigateur. Le fichier contient une version de format, le mode, le temps en millisecondes, les cinq étapes, les erreurs et règles, les indices horodatés, les avertissements, les validations physiques, les essais électriques et le détail du calcul de la note. Il ne contient aucune donnée personnelle et n’est envoyé à aucun serveur.
+
+**Recommencer** revient à l’accueil, efface le journal et le bilan, remet le matériel à son état initial et effectue un nouveau tirage des fils sectionnés.
+
 ## Accompagnement pédagogique
 
 **Entraînement** : six messages obligatoires, checklist détaillée, rappel au début de chaque étape, explication constructive après chaque erreur et bouton Aide. Les trois niveaux d’aide proposent une piste, une consigne précise, puis une démonstration animée. Chaque consultation est comptée, même si la démonstration est revue. Après 30 secondes sans action sur une étape, Inès propose de l’aide sans consommer d’indice.
@@ -114,7 +148,7 @@ Le bouton `−` réduit l’encadré d’Inès. Un nouveau message laisse l’en
 4. Après les cinq validations, parcourir le débriefing : réussites, erreurs avec règles à retenir, nombre d’indices et conclusion.
 5. Utiliser **Recommencer** pour revenir à l’accueil avec un nouveau journal.
 
-Les trois premières validations sont enregistrées comme des gestes ; les deux suivantes sont identifiées comme du debug. Le parcours ne produit pas encore de note sur la réparation complète. Les poses de la trappe et des voyants suivent la progression. La fermeture de test replace les quatre vis et remet le compteur à zéro ; le vrai geste de revissage viendra avec l’étape 4.
+Les cinq validations sont enregistrées comme des gestes. Le bilan porte sur toute la réparation ; les poses de la trappe, des vis et des voyants reflètent leurs états réels. Aucun bouton de test ne valide automatiquement une étape.
 
 ## Commandes
 
@@ -142,6 +176,12 @@ Les trois premières validations sont enregistrées comme des gestes ; les deux 
 | Prendre le fil neuf | Couleur dans la ceinture, puis bouton Prendre | Même choix avec `Tab` et `Entrée` |
 | Dénuder une extrémité | Pince sélectionnée, clic sur le bout | Bouton Dénuder du côté choisi |
 | Raccorder une extrémité | Glisser à moins de 2 cm de sa borne, puis relâcher | Saisir, flèches ou `A`, puis `Entrée` |
+| Refermer la trappe | Pousser son bord droit vers la droite | Curseur de trappe : `→ / Origine`, puis relâcher |
+| Revisser une vis | Cercles horaires | Choisir la vis puis maintenir `Q` |
+| Vérifier le serrage | Bouton du panneau Fermeture et serrage | `Tab`, puis `Entrée` |
+| Remonter le levier | Glisser vers le haut | Levier : `↑ / Origine`, puis relâcher |
+| Refermer le capot | Clic sur le capot rouge | Bouton Refermer le capot rouge |
+| Exporter le bilan | Bouton du bilan | `Tab`, puis `Entrée` |
 
 Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. Les outils se choisissent dans la ceinture en bas de l’écran.
 
@@ -162,12 +202,15 @@ Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. 
 - `src/steps/step3-wires.js` : tirage, état des fils, ordre des opérations et raccordement strict sous 2 cm, pilotés par la machine à états.
 - `src/scene/wiring.js` : tubes souples, cuivre effiloché, dénudage, bornes mobiles et cibles d’aimantation, à partir des positions des nœuds GLB.
 - `src/interactions/wires.js` : inspection, déclaration, cercles, retrait et glissement des extrémités à la souris et au clavier.
+- `src/steps/step4-close.js` : fermeture, revissage, ordre en croix et contrôle du serrage.
+- `src/steps/step5-test.js` : délai et contrôle électrique indépendant de la checklist.
+- `src/state/report.js` : barème et rapport JSON figé à la réussite.
 - `src/scene/electric-shock.js` : étincelles et secousse à durée limitée.
 - `public/models/`, `public/sounds/`, `public/hdri/`, `public/textures/` : futurs fichiers locaux.
 
 Les consignes existantes portent actuellement le nom `AGENTS (1).md`. Les spécifications se trouvent dans `SPEC.md` et `docs/Spec.md` (attention à la casse sous Linux).
 
-### Brancher les futurs gestes
+### Événements des gestes
 
 La mise hors tension utilise `OPEN_POWER_COVER`, `POWER_COVER_READY`, `POWER_DRAG_START`, `POWER_DRAG_MOVE`, `POWER_DRAG_END` et `POWER_DRAG_CANCEL`. La machine contrôle les délais et identifiants de geste. `TOUCH_HATCH` applique le choc sous tension ; `SHOCK_FINISHED` ne peut le terminer avant son délai.
 
@@ -175,14 +218,11 @@ L’ouverture utilise `SELECT_SCREW`, `SCREW_TURN_START`, `SCREW_TURN_MOVE` et `
 
 L’inspection et le remplacement passent par les événements `WIRE_INSPECT`, `WIRE_MARK`, `WIRE_TERMINAL_*`, `WIRE_REMOVE_*`, `WIRE_CHOOSE_REPLACEMENT`, `WIRE_STRIP`, `WIRE_END_*`, `WIRE_CANCEL` et `WIRE_CLEAR_SELECTION`. Le réducteur de l’étape 3 est appelé uniquement par `state/machine.js`. Il vérifie l’étape, l’alimentation, la lumière, les outils, les identifiants de geste et tous les prérequis. Les positions et distances non finies sont refusées. Les raccordements sont validés au lâcher, pas à la simple proximité.
 
-Les gestes des étapes suivantes devront émettre des événements vers `createMachine()` :
+La fermeture réutilise `SCREW_TURN_*` avec des angles horaires et `HATCH_DRAG_*` dans le sens inverse. `HATCH_CLOSED` attend la fin de l’inertie ; `CHECK_CLOSURE` vérifie le serrage réel avant la suite. Les avertissements en croix sont distincts du journal d’erreurs.
 
-- `COMPLETE_SUBSTEP` avec `stepId` et `substepId` coche une sous-étape de l’étape courante.
-- `VALIDATE_STEP` avec `stepId` ne passe à la suite que si toutes ses sous-étapes sont terminées.
-- `RECORD_ERROR` avec `stepId` et `code` ajoute une erreur connue du catalogue de `src/ui/textes.js`.
-- `ACTIVITY` réarme le délai d’inactivité ; les sélections d’outils et les actions de l’interface le font déjà.
+Le test utilise la remontée du levier, `CLOSE_POWER_COVER`, `POWER_COVER_CLOSED` puis `PROPULSION_TEST_FINISHED`. La machine contrôle le délai avec le temps actif de mission. `TICK` fournit un contrôle de secours du délai. Le rapport est créé à la réussite et ne change plus pendant le débriefing.
 
-Les validations d’une autre étape, les événements périmés et les actions pendant le briefing sont refusés par la machine, indépendamment de l’état des boutons. Les événements génériques de validation et de sous-étape ne peuvent pas contourner les gestes des étapes 1 à 3. Les snapshots sont immuables.
+Les événements `COMPLETE_SUBSTEP`, `VALIDATE_STEP` et `DEBUG_VALIDATE_STEP` sont refusés pour toutes les étapes. Les événements périmés et les gestes pendant le briefing sont également refusés, indépendamment de l’état des boutons. Les snapshots sont immuables.
 
 ### Vérifications navigateur
 
@@ -198,7 +238,9 @@ Le parcours vérifie les deux modes et l’accompagnement, puis teste le boîtie
 
 Pour contrôler seulement l’ouverture : `npm run test:browser -- --hatch`. Le même contrôle accepte l’adresse d’un build servi, par exemple `npm run test:browser -- http://127.0.0.1:4173/ --hatch`.
 
-Captures de référence : [accueil](docs/screenshots/accueil.png), [accompagnement](docs/screenshots/accompagnement.png), [petit écran](docs/screenshots/accompagnement-mobile.png), [mise hors tension](docs/screenshots/mise-hors-tension.png), [trappe ouverte](docs/screenshots/trappe-ouverte.png), [faisceau réparé](docs/screenshots/faisceau-repare.png).
+`scripts/final-checks.mjs` vérifie les vrais gestes de fermeture, les vis horaires, le serrage incomplet, l’avertissement en croix, le levier remonté, le capot refermé, le délai de deux secondes, la note, le téléchargement JSON, le bilan sur petit écran et la remise à zéro. Contrôle ciblé : `npm run test:browser -- --final`, également disponible sur le build compilé en fournissant son adresse.
+
+Captures de référence : [accueil](docs/screenshots/accueil.png), [accompagnement](docs/screenshots/accompagnement.png), [petit écran](docs/screenshots/accompagnement-mobile.png), [mise hors tension](docs/screenshots/mise-hors-tension.png), [trappe ouverte](docs/screenshots/trappe-ouverte.png), [faisceau réparé](docs/screenshots/faisceau-repare.png), [revissage](docs/screenshots/revissage.png), [bilan](docs/screenshots/bilan.png), [bilan sur petit écran](docs/screenshots/bilan-mobile.png).
 
 Pour tester le build compilé, lancer `npm run preview` dans un premier terminal, puis fournir son adresse au test depuis un second terminal :
 
@@ -264,6 +306,16 @@ Les fichiers présents dans `dist/` sont générés et ne doivent pas être comm
 - [ ] Chaque extrémité suit le curseur et s’aimante à moins de 2 cm de sa propre borne ; un lâcher trop loin ne raccorde rien.
 - [ ] Chaque borne est resserrée d’un tour horaire ; la dernière réparation complète active automatiquement l’étape 4.
 - [ ] Les commandes clavier réalisent tout le remplacement, avec annulation par Échap et reprise du travail conservé.
-- [ ] Le debug ne peut pas valider les étapes 1 à 3 ; les gestes réels puis les deux validations de test conduisent au débriefing.
+- [ ] Pousser la trappe vers la droite la ferme avec un clac ; un geste partiel ou annulé ne permet pas de revisser.
+- [ ] Quatre tours horaires au cruciforme font rentrer chaque vis en 3D ; Q réalise le même geste.
+- [ ] L’ordre haut gauche → bas droite → haut droite → bas gauche ne produit aucun avertissement.
+- [ ] Un autre ordre avertit sans bloquer ni pénaliser ; la trappe se redresse après la quatrième vis.
+- [ ] Vérifier le serrage trop tôt affiche « Une vis n’est pas serrée » et empêche la remise sous tension.
+- [ ] Le levier se remonte à la souris ou avec ↑ / Origine ; la LED POWER redevient verte.
+- [ ] Refermer le capot démarre le test ; l’alarme s’éteint après deux secondes et Inès confirme la réussite.
+- [ ] Le contrôle d’un défaut conserve l’alarme et impose une nouvelle coupure avant de rouvrir.
+- [ ] Le bilan montre le temps arrêté, les erreurs par étape, les indices et une note conforme au barème.
+- [ ] Exporter le bilan télécharge un JSON lisible avec les mêmes résultats ; aucun bouton de debug ne contourne les cinq étapes.
+- [ ] Recommencer efface le bilan et le journal, remet le matériel en place et tire de nouveaux fils sectionnés.
 
 Les résultats d’une validation dans Chromium avec un GPU logiciel ne garantissent pas 60 images/s sur toutes les machines. Chrome, Firefox et Edge restent à vérifier sur les postes ciblés avant la livraison finale.

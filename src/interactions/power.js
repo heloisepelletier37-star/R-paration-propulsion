@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { canAct, canUseBreaker } from '../state/procedure.js';
+import { canAct, canUseBreaker, canOperatePowerBox } from '../state/procedure.js';
+import { TEST_DURATION_MS } from '../steps/step5-test.js';
 import { COVER_DURATION_MS, dragProgress, HATCH_TARGETS, isScrewdriver } from '../steps/step1-power.js';
 
 const names = new Set(['Breaker_Cover', 'Breaker_Lever', ...HATCH_TARGETS]);
@@ -53,9 +54,9 @@ export function createPowerInteractions({ canvas, slider, root, camera, machine,
     const hit = hitAt(event);
     if (!hit) return;
     const name = hit.target.name;
-    if (name === 'Breaker_Cover' && canUseBreaker(machine.state)) {
+    if (name === 'Breaker_Cover' && canOperatePowerBox(machine.state)) {
       consume(event);
-      machine.dispatch({ type: 'OPEN_POWER_COVER' });
+      machine.dispatch({ type: machine.state.stepIndex === 4 && machine.state.power.cover === 'open' ? 'CLOSE_POWER_COVER' : 'OPEN_POWER_COVER' });
       gesture = { kind: 'cover', element: canvas, pointerId: event.pointerId };
       canvas.setPointerCapture(event.pointerId);
     } else if (name === 'Breaker_Lever' && canUseBreaker(machine.state)) {
@@ -73,7 +74,7 @@ export function createPowerInteractions({ canvas, slider, root, camera, machine,
         progress: dragProgress(gesture.initial, gesture.startY, event.clientY, gesture.travel) });
       return;
     }
-    if (event.target !== canvas || machine.state.stepIndex === 1) return;
+    if (event.target !== canvas || [1, 3].includes(machine.state.stepIndex)) return;
     const hit = canAct(machine.state) ? hitAt(event) : null;
     if (machine.state.stepIndex !== 1) canvas.style.cursor = hit?.target.name === 'Breaker_Lever' && machine.state.power.cover === 'open' ? 'ns-resize'
       : hit && (hit.target.name === 'Breaker_Cover' || isScrewdriver(machine.state.selectedTool)) ? 'pointer' : 'grab';
@@ -142,8 +143,11 @@ export function createPowerInteractions({ canvas, slider, root, camera, machine,
     },
     frame(now) {
       const state = machine.state;
-      if (state.power.cover === 'opening' && now - state.power.coverStartedAt >= COVER_DURATION_MS) {
-        machine.dispatch({ type: 'POWER_COVER_READY', coverId: state.power.coverId });
+      if (['opening', 'closing'].includes(state.power.cover) && now - state.power.coverStartedAt >= COVER_DURATION_MS) {
+        machine.dispatch({ type: state.power.cover === 'closing' ? 'POWER_COVER_CLOSED' : 'POWER_COVER_READY', coverId: state.power.coverId });
+      }
+      if (state.phase === 'running' && state.test.status === 'pending' && state.elapsedMs + Math.max(0, now - state.clockAt) - state.test.startedAtMs >= TEST_DURATION_MS) {
+        machine.dispatch({ type: 'PROPULSION_TEST_FINISHED', testId: state.test.id });
       }
       if (machine.state.shock.active && now >= machine.state.shock.until) {
         machine.dispatch({ type: 'SHOCK_FINISHED', shockId: machine.state.shock.id });

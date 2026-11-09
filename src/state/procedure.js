@@ -1,4 +1,4 @@
-// Stable identifiers shared with the future gesture implementations.
+// Stable identifiers shared by the five physical procedures.
 export const STEPS = [
   { id: 'power', substeps: ['cover', 'breaker'], error: 'liveCircuit', demo: 'power' },
   { id: 'open', substeps: ['driver', 'screws', 'hatch'], error: 'wrongDriver', demo: 'screw' },
@@ -15,13 +15,16 @@ export const TOOLS = [
   { id: 'yellow', color: 0xe3b348, key: 'Digit6', icon: 'wire' },
   { id: 'lamp', model: 'Headlamp', key: 'Digit7', icon: 'lamp' },
 ];
-export const canAct = state => state.phase === 'running' && !state.shock?.active;
+export const canAct = state => state.phase === 'running' && !state.shock?.active && state.test?.status !== 'pending';
 export const currentStep = state => STEPS[state.stepIndex];
-export const canUseBreaker = state => canAct(state) && state.stepIndex === 0 && state.power.circuitOn;
+export const canOperatePowerBox = state => canAct(state) && (state.stepIndex === 0 || state.stepIndex === 4);
+export const canUseBreaker = state => canOperatePowerBox(state) && (state.stepIndex === 0 ? state.power.circuitOn : !state.power.circuitOn);
+export const canCloseHatch = state => canAct(state) && state.stepIndex === 3 && !state.power.circuitOn && !state.hatch.settling;
+export const canWorkHatch = state => canOpenHatch(state) || canCloseHatch(state);
 export const canOpenHatch = state => canAct(state) && state.stepIndex === 1 && !state.power.circuitOn && !state.hatch.opened && !state.hatch.settling;
 export const canRepairWires = state => canAct(state) && state.stepIndex === 2 && !state.power.circuitOn && state.hatch.opened;
 export const sceneState = state => ({
   circuitOn: state.power.circuitOn,
-  hatchOpen: state.steps[1].completed && !state.steps[3].completed,
-  alarmActive: !state.steps[4].completed,
+  hatchOpen: state.hatch.opened,
+  alarmActive: state.test.status !== 'passed',
 });

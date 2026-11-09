@@ -25,8 +25,8 @@ export function keyTurnSlices(milliseconds) {
 }
 export const hatchDragProgress = (initial, startX, x, travel) => Math.max(0, Math.min(1, initial + (startX - x) / Math.max(1, travel)));
 export function initialHatchState() {
-  return { screws: Object.fromEntries(ALL_SCREWS.map(id => [id, { turns: 0, scratched: false }])),
+  return { screws: Object.fromEntries(ALL_SCREWS.map(id => [id, { turns: 0, scratched: false, fitted: true }])),
     selectedScrew: null, turning: false, dragging: false, gestureId: 0, reverseDebt: 0, directionWarned: false,
-    progress: 0, dragOrigin: 0, settling: false, settleId: 0, settleStartedAt: null, opened: false,
+    closeOrder: [], crossWarning: false, progress: 0, dragOrigin: 0, settling: false, settleId: 0, settleStartedAt: null, opened: false,
     feedbackId: 0, feedbackCode: null, feedbackScrew: null, soundId: 0, soundKind: null };
 }

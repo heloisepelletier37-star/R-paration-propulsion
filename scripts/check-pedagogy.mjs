@@ -7,10 +7,12 @@ import { chromium } from 'playwright-core';
 import { resolveConfig } from 'vite';
 import { powerOffByKeyboard, runPowerChecks } from './power-checks.mjs';
 import { openHatchByKeyboard, runHatchChecks } from './hatch-checks.mjs';
+import { finishMissionByKeyboard, runFinalChecks, downloadReport } from './final-checks.mjs';
 import { repairWiresByKeyboard, runWireChecks } from './wires-checks.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const externalTarget = process.argv.slice(2).find(argument => !argument.startsWith('--'));
+const finalOnly = process.argv.includes('--final');
 const hatchOnly = process.argv.includes('--hatch');
 const wiresOnly = process.argv.includes('--wires');
 const { base } = await resolveConfig({ root }, 'serve');
@@ -44,8 +46,11 @@ try {
   page.on('response', response => { if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`); });
   await page.goto(target);
   await page.waitForSelector('#app[data-ready="true"][data-phase="welcome"]');
-  if (wiresOnly) {
+  if (finalOnly) {
+    await runFinalChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard, repairWiresByKeyboard);
+  } else if (wiresOnly) {
     await runWireChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard);
+  await runFinalChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard, repairWiresByKeyboard);
   } else if (hatchOnly) {
     await runHatchChecks(page, artifacts, powerOffByKeyboard);
   } else {
@@ -60,12 +65,11 @@ try {
   assert.equal(await page.locator('.radio img, .radio-avatar, .radio svg').count(), 0);
   await page.locator('#welcome-form button[type="submit"]').click();
   await page.waitForSelector('#app[data-phase="briefing"]');
-  assert.equal(await page.locator('#debug-validate').isDisabled(), true);
+  assert.equal(await page.locator('#debug-validate').count(), 0);
   assert.equal(await page.locator('#lamp').isDisabled(), true);
   assert.equal(await page.locator('.toolbelt button:disabled').count(), 7);
   await page.keyboard.press('l'); await page.keyboard.press('1');
   assert.equal(await page.locator('#lamp').getAttribute('aria-pressed'), 'false');
-  await page.evaluate(() => document.querySelector('#debug-validate').dispatchEvent(new MouseEvent('click', { bubbles: true })));
   assert.equal(await page.locator('.checklist-step[data-status="complete"]').count(), 0);
   for (let index = 1; index <= 6; index++) {
     await page.waitForFunction(index => document.querySelector('#radio-category').textContent.endsWith(`${index} SUR 6`), index);
@@ -77,7 +81,7 @@ try {
   await page.waitForSelector('#app[data-phase="running"]');
   assert.equal(await page.locator('.checklist-step[aria-current="step"]').getAttribute('data-step'), 'power');
   assert.equal(await page.locator('.substeps li').count(), 2);
-  assert.equal(await page.locator('#debug-validate').isDisabled(), true);
+  assert.equal(await page.locator('#debug-validate').count(), 0);
   await page.locator('[data-tool="phillips"]').click();
   assert.equal(await page.locator('[data-tool="phillips"]').getAttribute('aria-pressed'), 'true');
   await page.locator('#mars-view').focus(); await page.keyboard.press('2');
@@ -94,7 +98,10 @@ try {
   assert.equal(await page.locator('#radio-body').isHidden(), true);
   assert.equal(await page.locator('#radio-unread').isVisible(), true);
   await page.locator('#radio-toggle').click();
-  await page.locator('#debug-error').click();
+  await page.locator('[data-tool="flat"]').click();
+  if (!await page.locator('#power-controls').evaluate(el => el.open)) await page.locator('#power-controls summary').click();
+  await page.locator('#hatch-contact').click();
+  await page.waitForFunction(() => document.querySelector('#shock-alert').hidden);
   assert.equal(await page.locator('#radio').getAttribute('data-kind'), 'error');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
   await powerOffByKeyboard(page);
@@ -103,7 +110,7 @@ try {
   assert.equal(await page.locator('#radio').getAttribute('data-kind'), 'success');
   assert.equal(await page.locator('#power-status').textContent(), 'Tension : OFF');
   await page.locator('#briefing').click();
-  assert.equal(await page.locator('#debug-validate').isDisabled(), true);
+  assert.equal(await page.locator('#debug-validate').count(), 0);
   for (let index = 0; index < 6; index++) {
     await page.waitForFunction(() => document.querySelector('#radio-next').textContent !== 'Afficher le message');
     await page.locator('#radio-next').click();
@@ -128,7 +135,7 @@ try {
   assert.equal(layout.overlaps, false); assert.equal(layout.checklistVisible, true); assert.equal(layout.overflow, false);
   await page.setViewportSize({ width: 1280, height: 900 });
   await repairWiresByKeyboard(page);
-  for (let index = 0; index < 2; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await finishMissionByKeyboard(page);
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('.checklist-step[data-status="complete"]').count(), 5);
   const transcript = [];
@@ -151,23 +158,29 @@ try {
   assert.equal(await page.locator('#help').isHidden(), true);
   assert.equal(await page.locator('.substeps').count(), 0);
   assert.equal(await page.locator('.checklist-step').count(), 5);
-  await page.locator('#debug-error').click();
+  await page.locator('[data-tool="flat"]').click();
+  if (!await page.locator('#power-controls').evaluate(el => el.open)) await page.locator('#power-controls summary').click();
+  await page.locator('#hatch-contact').click();
+  await page.waitForFunction(() => document.querySelector('#shock-alert').hidden);
   assert.equal(await page.locator('.error-marker').count(), 0);
   assert.equal(await page.locator('#error-count').textContent(), 'Au bilan');
   assert.ok((await page.locator('#radio-text').textContent()).includes('Tu avances en autonomie.'));
   await powerOffByKeyboard(page);
   await openHatchByKeyboard(page);
   await repairWiresByKeyboard(page);
-  for (let index = 0; index < 2; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await finishMissionByKeyboard(page);
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '1');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
+  const evaluationReport = await downloadReport(page, artifacts, 'bilan-evaluation.json');
+  assert.equal(evaluationReport.mode, 'evaluation'); assert.equal(evaluationReport.score.value, 17);
   await runPowerChecks(page, artifacts);
   await runHatchChecks(page, artifacts, powerOffByKeyboard);
   await runWireChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard);
+  await runFinalChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard, repairWiresByKeyboard);
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify(hatchOnly || wiresOnly ? { passed: true, scope: wiresOnly ? 'wire replacement' : 'hatch gestures', consoleErrors: errors, artifacts }
+  console.log(JSON.stringify(hatchOnly || wiresOnly || finalOnly ? { passed: true, scope: finalOnly ? 'closure, power test and report' : wiresOnly ? 'wire replacement' : 'hatch gestures', consoleErrors: errors, artifacts }
     : { passed: true, training: '6-message lock, tools, hints, errors, replay, five stages, debrief', evaluation: '1-message lock, no help, hidden feedback until debrief', layout: 'desktop and mobile, no overlap', consoleErrors: errors, artifacts }, null, 2));
 } catch (error) {
   const page = browser?.contexts()[0]?.pages()[0];

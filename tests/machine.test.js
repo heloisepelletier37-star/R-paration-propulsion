@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createMachine, briefingCount, stepStatus } from '../src/state/machine.js';
 import { STEPS, TOOLS, canAct, sceneState } from '../src/state/procedure.js';
 import { textes as t } from '../src/ui/textes.js';
-import { openHatch, repairWires } from '../test-support/procedure.js';
+import { openHatch, repairWires, closeHatch, finishTest } from '../test-support/procedure.js';
 const clocks = new WeakMap();
 
 function session(mode = 'training') {
@@ -26,6 +26,9 @@ function start(mode = 'training') {
   return result;
 }
 function validate(machine) {
+  if (machine.state.phase !== 'running') return false;
+  if (machine.state.stepIndex === 3) { closeHatch(machine, clocks.get(machine)); return true; }
+  if (machine.state.stepIndex === 4) { finishTest(machine, clocks.get(machine)); return true; }
   if (machine.state.stepIndex === 2 && machine.state.phase === 'running') { repairWires(machine); return true; }
   if (machine.state.stepIndex === 1 && machine.state.phase === 'running') { openHatch(machine, clocks.get(machine)); return true; }
   if (machine.state.stepIndex === 0 && machine.state.phase === 'running') {
@@ -110,18 +113,19 @@ test('stages cannot be skipped, and a stale debug validation never validates the
   assert.equal(machine.state.phase, 'debrief');
   assert.equal(machine.state.repairLocked, true);
   assert.equal(machine.state.validations.length, 5);
-  assert.deepEqual(machine.state.validations.map(item => item.source), ['gesture', 'gesture', 'gesture', 'debug', 'debug']);
+  assert.deepEqual(machine.state.validations.map(item => item.source), Array(5).fill('gesture'));
 });
 
-test('normal validation requires every substep of the current stage', () => {
+test('generic substep and debug events cannot bypass the physical closure or test', () => {
   const { machine } = start();
   validate(machine); validate(machine); validate(machine);
-  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'close' }), false);
-  assert.equal(machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'test', substepId: 'cover' }), false);
-  for (const substepId of ['hatch', 'cross']) machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'close', substepId });
-  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'close' }), false);
-  machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'close', substepId: 'tighten' });
-  machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'close' });
+  for (const stepId of ['close', 'test']) {
+    for (const type of ['VALIDATE_STEP', 'DEBUG_VALIDATE_STEP', 'COMPLETE_SUBSTEP']) {
+      assert.equal(machine.dispatch({ type, stepId, substepId: 'hatch' }), false);
+    }
+  }
+  assert.equal(machine.state.stepIndex, 3);
+  validate(machine);
   assert.equal(machine.state.stepIndex, 4);
   assert.equal(machine.state.validations[3].source, 'gesture');
 });

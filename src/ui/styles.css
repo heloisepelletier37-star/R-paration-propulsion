@@ -47,10 +47,6 @@ h1, h2, p { margin-top: 0; }
 .substeps li > span { color: #a8beab; }
 .substeps li[data-done="true"] { color: #a5d8b4; }
 .is-presented { animation: checklist-pulse 1.8s ease-in-out 2; border-radius: 5px; }
-.debug-panel { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 20px; }
-.debug-panel .eyebrow { font-size: 8px; color: #afc3b3; }
-.debug-panel p { margin: 9px 0 12px; color: var(--muted); font-size: 10px; line-height: 1.6; }
-.debug-panel button { display: block; width: 100%; margin-top: 7px; font-size: 11px; padding: 9px 7px; }
 .scene-shell { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #a47d64; }
 #mars-view { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; outline-offset: -5px; }
 .visor { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 80px #0b1e3155; background: linear-gradient(#10243066, transparent 24%, transparent 77%, #10232b88); }
@@ -100,11 +96,11 @@ h1, h2, p { margin-top: 0; }
 #wire-remove:focus-visible, #wire-move:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #wire-move { margin-top: 12px; padding: 9px; border: 1px solid #9bc9a777; border-radius: 4px; }
 #wire-distance { font-size: 11px; color: #b2e0be; line-height: 1.6; }
-#wire-controls { flex: 1 1 auto; min-height: 44px; max-height: 42vh; overflow: auto; scrollbar-width: thin; }
-#wire-controls:not([open]) { flex: 0 0 auto; }
-#wire-controls summary { position: sticky; top: -10px; z-index: 1; background: #10252c; padding: 6px 0; }
-.comms-column:has(#wire-controls[open]) { gap: 12px; }
-.comms-column:has(#wire-controls[open]) .mission-context h1 { font-size: 20px; margin-bottom: 8px; }
+#power-controls, #hatch-controls, #wire-controls { flex: 1 1 auto; min-height: 44px; max-height: 42vh; overflow: auto; scrollbar-width: thin; }
+#power-controls:not([open]), #hatch-controls:not([open]), #wire-controls:not([open]) { flex: 0 0 auto; }
+#power-controls summary, #hatch-controls summary, #wire-controls summary { position: sticky; top: -10px; z-index: 1; background: #10252c; padding: 6px 0; }
+.comms-column:has(.power-controls[open]) { gap: 12px; }
+.comms-column:has(.power-controls[open]) .mission-context h1 { font-size: 20px; margin-bottom: 8px; }
 .comms-column { min-width: 0; min-height: 0; background: #14262d; padding: 23px 16px 15px; display: flex; flex-direction: column; gap: 22px; overflow: auto; scrollbar-width: thin; }
 .mission-context h1 { font-weight: 450; letter-spacing: -.025em; font-size: 27px; line-height: 1.1; margin-bottom: 12px; text-wrap: balance; }
 .mission-context .eyebrow { font-size: 8px; }
@@ -239,9 +235,6 @@ progress::-webkit-progress-value, progress::-moz-progress-bar { background: var(
   .substeps { padding-left: 26px; gap: 7px; }
   .substeps li { font-size: 9px; }
   .error-marker { font-size: 12px; }
-  .debug-panel { margin-top: 12px; padding-top: 12px; }
-  .debug-panel p { display: none; }
-  .debug-panel button { font-size: 10px; padding: 8px 5px; }
   .scene-shell { grid-column: 2; grid-row: 1; }
   .scene-telemetry { top: 10px; left: 8px; right: 8px; font-size: 8px; }
   .scene-help { bottom: 8px; left: 8px; right: 8px; }
@@ -304,3 +297,20 @@ progress::-webkit-progress-value, progress::-moz-progress-bar { background: var(
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.test-feedback { position: absolute; top: 62px; left: 16px; right: 16px; padding: 10px 14px; background: #182e32f2; border: 1px solid #ddb776; border-radius: 4px; color: #ffe1a0; font-size: 12px; pointer-events: none; }
+.summary { width: min(500px, calc(100% - 28px)); }
+.summary-metrics { display: flex; gap: 25px; margin: 20px 0 8px; }
+.summary-metrics dt { color: var(--muted); font-size: 11px; }
+.summary-metrics dd { margin: 6px 0; font-size: 26px; color: #d7efc9; }
+.summary h3 { font-size: 13px; margin: 22px 0 10px; color: #e5dfc4; }
+.summary h4 { font-size: 11px; margin: 12px 0 4px; font-weight: 500; }
+.summary ul { padding-left: 17px; }
+.summary li, .summary #summary-errors p, .score-rules { color: #c8d8cb; font-size: 11px; line-height: 1.6; }
+.summary #summary-errors p { margin: 0; }
+.summary li small { display: block; color: #acbcb1; }
+.summary button { margin-top: 10px; }
+.score-rules { margin-top: 10px; }
+@media (max-width: 600px) { .summary-metrics { gap: 10px; } .summary-metrics dd { font-size: 22px; white-space: nowrap; } }
+/* On the return stroke, 70% travelled corresponds to 30% on the downward scale. */
+#app:has(.checklist-step[data-step="test"][data-status="current"]) .lever-threshold { top: 30%; }

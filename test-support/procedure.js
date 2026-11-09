@@ -58,3 +58,29 @@ export function repairWires(machine) {
     for (const side of ['L', 'R']) turnTerminal(machine, wireId, side);
   }
 }
+
+export function pushHatch(machine, advance) {
+  machine.dispatch({ type: 'HATCH_DRAG_START' }); const gestureId = machine.state.hatch.gestureId;
+  machine.dispatch({ type: 'HATCH_DRAG_MOVE', gestureId, progress: 0 }); machine.dispatch({ type: 'HATCH_DRAG_END', gestureId });
+  advance(HATCH_SETTLE_MS); machine.dispatch({ type: 'HATCH_CLOSED', settleId: machine.state.hatch.settleId });
+}
+export function tightenScrew(machine, screwId) {
+  machine.dispatch({ type: 'SCREW_TURN_START', screwId }); const gestureId = machine.state.hatch.gestureId;
+  for (let i = 0; i < 16; i++) machine.dispatch({ type: 'SCREW_TURN_MOVE', gestureId, radians: -TAU / 4 });
+}
+export function closeHatch(machine, advance, order = ['Screw_TL', 'Screw_BR', 'Screw_TR', 'Screw_BL']) {
+  pushHatch(machine, advance);
+  machine.dispatch({ type: 'SELECT_TOOL', toolId: 'phillips' });
+  order.forEach(id => tightenScrew(machine, id));
+  machine.dispatch({ type: 'CHECK_CLOSURE' });
+}
+export function startTest(machine, advance) {
+  machine.dispatch({ type: 'POWER_DRAG_START' }); const dragId = machine.state.power.dragId;
+  machine.dispatch({ type: 'POWER_DRAG_MOVE', dragId, progress: 0 }); machine.dispatch({ type: 'POWER_DRAG_END', dragId });
+  machine.dispatch({ type: 'CLOSE_POWER_COVER' }); advance(400);
+  machine.dispatch({ type: 'POWER_COVER_CLOSED', coverId: machine.state.power.coverId });
+}
+export function finishTest(machine, advance) {
+  startTest(machine, advance); advance(2000);
+  machine.dispatch({ type: 'PROPULSION_TEST_FINISHED', testId: machine.state.test.id });
+}

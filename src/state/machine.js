@@ -1,7 +1,10 @@
-import { STEPS, TOOLS, canAct, currentStep, canUseBreaker, canOpenHatch } from './procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, canUseBreaker, canOperatePowerBox, canOpenHatch } from './procedure.js';
 import { initialPowerState, COVER_DURATION_MS, SHOCK_DURATION_MS, clampProgress, passesThreshold, HATCH_TARGETS, isScrewdriver } from '../steps/step1-power.js';
 import { initialHatchState, ALL_SCREWS, SAFETY_SCREW, removed, removedCount, TAU, TURNS_REQUIRED, HATCH_SETTLE_MS } from '../steps/step2-hatch.js';
 import { initialWiringState, reduceWiring, cancelWiring } from '../steps/step3-wires.js';
+import { reduceClosing, closureReady } from '../steps/step4-close.js';
+import { initialTestState, TEST_DURATION_MS, propulsionOperational, wireOperational } from '../steps/step5-test.js';
+import { createReport } from './report.js';
 import { textes as t } from '../ui/textes.js';
 
 export const briefingCount = state => state.mode === 'evaluation' ? 1 : t.briefing.length;
@@ -23,7 +26,7 @@ function initialState(audio = false, random = Math.random) {
       substeps: Object.fromEntries(step.substeps.map(id => [id, false])), errors: [], hintLevel: 0 })),
     briefingIndex: 0, resume: null, sequence: 0, message: null, messageQueue: [],
     radioCollapsed: false, unread: false, selectedTool: null, headlamp: false, audio,
-    errors: [], hintsUsed: 0, hintLog: [], validations: [],
+    errors: [], warnings: [], hintsUsed: 0, hintLog: [], validations: [], report: null, test: initialTestState(),
     power: initialPowerState(), hatch: initialHatchState(), wires: initialWiringState(random), shock: { id: 0, active: false, at: null, until: null, point: null },
     elapsedMs: 0, clockAt: null, lastActivityAt: 0, idlePrompted: false,
   };
@@ -41,7 +44,7 @@ function activity(state, time) {
 
 function cancelDrag(state) {
   if (!state.power.dragging) return;
-  Object.assign(state.power, { dragging: false, leverProgress: 0, lastRelease: 'cancelled',
+  Object.assign(state.power, { dragging: false, leverProgress: state.power.circuitOn ? 0 : 1, lastRelease: 'cancelled',
     dragId: state.power.dragId + 1, releaseId: state.power.releaseId + 1 });
 }
 
@@ -114,14 +117,12 @@ function finishStep(state, time, source) {
   state.validations.push({ stepId: step.id, source, atMs: state.elapsedMs });
   activity(state, time);
   if (index === STEPS.length - 1) {
-    state.power.circuitOn = true;
-    state.power.cover = 'closed';
-    state.power.leverProgress = 0;
     state.phase = 'debrief';
     state.selectedTool = null;
     state.headlamp = false;
     state.radioCollapsed = false;
-    showMessages(state, debriefMessages(state));
+    state.report = createReport(state);
+    showMessages(state, [message(t.testControls.success, 'debrief', 'success'), ...debriefMessages(state)]);
   } else {
     state.stepIndex++;
     if (state.stepIndex === 1 && state.selectedTool === 'phillips') state.steps[1].substeps.driver = true;
@@ -132,9 +133,50 @@ function finishStep(state, time, source) {
   }
 }
 
-function reduce(state, event, time, random) {
+function resetProcedure(state) {
+  cancelDrag(state); cancelHatch(state); cancelWiring(state);
+  state.stepIndex = 0;
+  for (const step of state.steps) {
+    step.completed = false;
+    Object.keys(step.substeps).forEach(id => { step.substeps[id] = false; });
+  }
+  state.steps[0].substeps.cover = state.power.cover === 'open';
+  state.hatch.selectedScrew = null;
+  state.hatch.closeOrder = []; state.hatch.crossWarning = false;
+  state.test.status = 'idle';
+  for (const wire of state.wires.items) {
+    wire.inspected = false;
+    // A new diagnosis must reflect connections, rather than a previous completion flag.
+    if (wire.broken) wire.repaired = wireOperational(wire);
+  }
+}
+
+function resolveTest(state, time) {
+  if (state.test.status !== 'pending' || state.elapsedMs - state.test.startedAtMs < TEST_DURATION_MS) return;
+  const passed = propulsionOperational(state);
+  state.test.finishedAtMs = state.elapsedMs;
+  state.test.attempts.push({ id: state.test.id, startedAtMs: state.test.startedAtMs, finishedAtMs: state.elapsedMs, passed });
+  if (passed) {
+    state.test.status = 'passed'; state.test.startupId++; state.test.startupAt = time;
+    state.steps[4].substeps.alarm = true;
+    finishStep(state, time, 'gesture');
+  } else {
+    const error = { stepId: 'test', code: 'persistentFault', atMs: state.elapsedMs, source: 'gesture' };
+    state.errors.push(error); state.steps[4].errors.push(error);
+    resetProcedure(state);
+    state.test.status = 'failed';
+    showMessages(state, state.mode === 'training' ? [message(t.errors.persistentFault.why, 'error', 'error')] : []);
+    activity(state, time);
+  }
+}
+
+// Pure transition, also usable by tests with a prepared hardware state.
+export function transition(state, event, time, random = Math.random) {
   // Clone only accepted transitions; an invalid event leaves the exact state intact.
   const next = () => { const value = structuredClone(state); advanceClock(value, time); return value; };
+  if (state.stepIndex === 3 && /^(SCREW_|SELECT_SCREW|HATCH_|CHECK_CLOSURE)/.test(event.type)) {
+    return reduceClosing(state, event, time, { next, activity, showMessages, message, finishStep, cancelHatch });
+  }
   switch (event.type) {
     case 'SCENE_READY': {
       if (state.phase !== 'loading') return state;
@@ -211,19 +253,37 @@ function reduce(state, event, time, random) {
       activity(s, time); return s;
     }
     case 'OPEN_POWER_COVER': {
-      if (!canUseBreaker(state) || state.power.cover !== 'closed') return state;
+      if (!canOperatePowerBox(state) || state.power.cover !== 'closed') return state;
       const s = next();
       Object.assign(s.power, { cover: 'opening', coverId: s.power.coverId + 1, coverStartedAt: time });
       activity(s, time); return s;
     }
     case 'POWER_COVER_READY': {
-      if (!canUseBreaker(state) || state.power.cover !== 'opening' || event.coverId !== state.power.coverId
+      if (!canOperatePowerBox(state) || state.power.cover !== 'opening' || event.coverId !== state.power.coverId
           || time - state.power.coverStartedAt < COVER_DURATION_MS) return state;
-      const s = next(); s.power.cover = 'open'; s.steps[0].substeps.cover = true;
+      const s = next(); s.power.cover = 'open'; if (s.stepIndex === 0) s.steps[0].substeps.cover = true;
       return s;
     }
+    case 'CLOSE_POWER_COVER': {
+      if (!canOperatePowerBox(state) || state.stepIndex !== 4 || !state.power.circuitOn || state.power.cover !== 'open' || state.power.dragging || !closureReady(state.hatch)) return state;
+      const s = next(); Object.assign(s.power, { cover: 'closing', coverId: s.power.coverId + 1, coverStartedAt: time });
+      activity(s, time); return s;
+    }
+    case 'POWER_COVER_CLOSED': {
+      if (!canOperatePowerBox(state) || state.stepIndex !== 4 || !state.power.circuitOn || state.power.cover !== 'closing'
+          || event.coverId !== state.power.coverId || time - state.power.coverStartedAt < COVER_DURATION_MS) return state;
+      const s = next(); s.power.cover = 'closed'; s.steps[4].substeps.cover = true;
+      Object.assign(s.test, { status: 'pending', id: s.test.id + 1, startedAtMs: s.elapsedMs, finishedAtMs: null });
+      activity(s, time); return s;
+    }
+    case 'PROPULSION_TEST_FINISHED': {
+      if (state.phase !== 'running' || state.test.status !== 'pending' || event.testId !== state.test.id) return state;
+      const s = next();
+      if (s.elapsedMs - s.test.startedAtMs < TEST_DURATION_MS) return state;
+      resolveTest(s, time); return s;
+    }
     case 'POWER_DRAG_START': {
-      if (!canUseBreaker(state) || state.power.cover !== 'open' || state.power.dragging) return state;
+      if (!canUseBreaker(state) || state.power.cover !== 'open' || state.power.dragging || (state.stepIndex === 4 && !closureReady(state.hatch))) return state;
       const s = next(); s.power.dragging = true; s.power.dragId++; s.power.lastRelease = null;
       activity(s, time); return s;
     }
@@ -234,12 +294,13 @@ function reduce(state, event, time, random) {
     case 'POWER_DRAG_END': {
       if (!canUseBreaker(state) || !state.power.dragging || event.dragId !== state.power.dragId) return state;
       const s = next(); s.power.dragging = false; s.power.releaseId++;
-      if (passesThreshold(s.power.leverProgress)) {
-        Object.assign(s.power, { circuitOn: false, leverProgress: 1, lastRelease: 'success' });
-        s.steps[0].substeps.breaker = true;
-        finishStep(s, time, 'gesture');
+      const restoring = s.stepIndex === 4;
+      if (passesThreshold(restoring ? 1 - s.power.leverProgress : s.power.leverProgress)) {
+        Object.assign(s.power, { circuitOn: restoring, leverProgress: restoring ? 0 : 1, lastRelease: restoring ? 'restored' : 'success' });
+        s.steps[s.stepIndex].substeps.breaker = true;
+        if (!restoring) finishStep(s, time, 'gesture');
       } else {
-        Object.assign(s.power, { leverProgress: 0, lastRelease: 'short' });
+        Object.assign(s.power, { leverProgress: restoring ? 1 : 0, lastRelease: 'short' });
         activity(s, time);
       }
       return s;
@@ -250,12 +311,7 @@ function reduce(state, event, time, random) {
     }
     case 'TOUCH_HATCH': {
       if (!canAct(state) || !state.power.circuitOn || !isScrewdriver(state.selectedTool) || !HATCH_TARGETS.includes(event.nodeName)) return state;
-      const s = next(); cancelDrag(s); cancelHatch(s); cancelWiring(s); s.hatch = initialHatchState(); s.stepIndex = 0;
-      for (const step of s.steps) {
-        step.completed = false;
-        Object.keys(step.substeps).forEach(id => { step.substeps[id] = false; });
-      }
-      s.steps[0].substeps.cover = s.power.cover === 'open';
+      const s = next(); resetProcedure(s);
       s.power.leverProgress = 0;
       s.shock = { id: s.shock.id + 1, active: true, at: time, until: time + SHOCK_DURATION_MS,
         point: Array.isArray(event.point) && event.point.length === 3 && event.point.every(Number.isFinite) ? [...event.point] : null };
@@ -311,6 +367,7 @@ function reduce(state, event, time, random) {
       if (screw.turns > TURNS_REQUIRED - 1e-8) screw.turns = TURNS_REQUIRED;
       if (Math.floor(screw.turns * 4) > Math.floor(before * 4)) { target.soundId++; target.soundKind = 'screw'; }
       if (removed(screw)) {
+        screw.fitted = false;
         target.turning = false;
         hatchFeedback(s, 'removed');
         s.steps[1].substeps.screws = removedCount(target) === 4;
@@ -353,22 +410,9 @@ function reduce(state, event, time, random) {
       s.steps[1].substeps.hatch = true; hatchFeedback(s, 'opened', null, 'hatch');
       finishStep(s, time, 'gesture'); return s;
     }
-    case 'COMPLETE_SUBSTEP': {
-      if (!canAct(state) || ['power', 'open', 'wires'].includes(event.stepId) || event.stepId !== currentStep(state).id
-          || !currentStep(state).substeps.includes(event.substepId)
-          || state.steps[state.stepIndex].substeps[event.substepId]) return state;
-      const s = next(); s.steps[s.stepIndex].substeps[event.substepId] = true; activity(s, time); return s;
-    }
+    case 'COMPLETE_SUBSTEP':
     case 'VALIDATE_STEP':
-    case 'DEBUG_VALIDATE_STEP': {
-      if (!canAct(state) || ['power', 'open', 'wires'].includes(event.stepId) || event.stepId !== currentStep(state).id) return state;
-      if (event.type === 'VALIDATE_STEP' && !Object.values(state.steps[state.stepIndex].substeps).every(Boolean)) return state;
-      const s = next();
-      if (event.type === 'DEBUG_VALIDATE_STEP') {
-        currentStep(s).substeps.forEach(id => { s.steps[s.stepIndex].substeps[id] = true; });
-      }
-      finishStep(s, time, event.type === 'DEBUG_VALIDATE_STEP' ? 'debug' : 'gesture'); return s;
-    }
+    case 'DEBUG_VALIDATE_STEP': return state;
     case 'ACTIVITY': {
       if (!canAct(state)) return state;
       const s = next(); activity(s, time); return s;
@@ -377,6 +421,8 @@ function reduce(state, event, time, random) {
       if (state.phase !== 'running') return state;
       const s = next();
       if (s.shock.active && time >= s.shock.until) s.shock.active = false;
+      resolveTest(s, time);
+      if (s.phase !== 'running') return s;
       if (canAct(s) && s.mode === 'training' && !s.idlePrompted && time - s.lastActivityAt >= 30000) {
         showMessages(s, [message(t.radio.idle, 'idle')]); s.idlePrompted = true;
       }
@@ -396,7 +442,7 @@ export function createMachine({ now = () => Date.now(), random = Math.random } =
   return {
     get state() { return state; },
     dispatch(event) {
-      const next = reduce(state, event, now(), random);
+      const next = transition(state, event, now(), random);
       if (next === state) return false;
       next.repairLocked = !canAct(next);
       state = freeze(next);

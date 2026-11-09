@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { canOpenHatch } from '../state/procedure.js';
+import { canWorkHatch } from '../state/procedure.js';
 import { ALL_SCREWS, removed, removedCount, pointerAngle, circularDelta, hatchDragProgress, HATCH_SETTLE_MS, keyTurnSlices } from '../steps/step2-hatch.js';
+import { tightened } from '../steps/step4-close.js';
 import { firstPowerHit } from './power.js';
 
 export function createHatchInteractions({ canvas, controls, slider, guide, root, camera, machine, projection }) {
@@ -14,7 +15,7 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
   const screenPoint = name => {
     const rect = canvas.getBoundingClientRect();
     camera.updateMatrixWorld();
-    const p = projection.targetPoint(name).project(camera);
+    const p = projection.targetPoint(name, camera).project(camera);
     return { x: rect.left + (p.x + 1) * rect.width / 2, y: rect.top + (1 - p.y) * rect.height / 2 };
   };
   function hitAt(event) {
@@ -23,11 +24,12 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), camera);
     const hit = firstPowerHit(raycaster.intersectObject(hatch, true));
     if (!hit) return null;
+    if (machine.state.stepIndex === 3 && machine.state.hatch.opened) return { ...hit, target: hatch };
     if (ALL_SCREWS.includes(hit.target.name)) return hit;
     // Small screw heads remain selectable on narrow screens and at limited zoom.
     let nearest; let distance = 12;
     for (const id of ALL_SCREWS) {
-      if (removed(machine.state.hatch.screws[id])) continue;
+      if (machine.state.stepIndex === 3 ? tightened(machine.state.hatch.screws[id]) && id !== 'Screw_Safety' : removed(machine.state.hatch.screws[id])) continue;
       const p = screenPoint(id); const d = Math.hypot(event.clientX - p.x, event.clientY - p.y);
       if (d < distance) { distance = d; nearest = root.getObjectByName(id); }
     }
@@ -56,7 +58,7 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     capture(element, event, h.dragging ? { kind: 'hatch', id: h.gestureId, initial: h.progress, x: event.clientX, travel } : { kind: 'blocked' });
   }
   canvas.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || pointer || q || keys || !canOpenHatch(machine.state)) return;
+    if (event.button !== 0 || pointer || q || keys || !canWorkHatch(machine.state)) return;
     const hit = hitAt(event); if (!hit) return;
     consume(event); canvas.focus({ preventScroll: true });
     if (ALL_SCREWS.includes(hit.target.name)) {
@@ -67,7 +69,7 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     } else beginHatch(canvas, event, projection.hatchTravel(camera, canvas.clientWidth), removedCount(machine.state.hatch) < 4 || projection.isHatchEdge(hit.point));
   }, { capture: true });
   slider.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || pointer || q || keys || !canOpenHatch(machine.state)) return;
+    if (event.button !== 0 || pointer || q || keys || !canWorkHatch(machine.state)) return;
     consume(event); slider.focus(); beginHatch(slider, event, Math.max(72, slider.clientWidth - 20));
   }, { capture: true });
   function move(event) {
@@ -82,7 +84,7 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
         progress: hatchDragProgress(g.initial, g.x, event.clientX, g.travel) });
       return;
     }
-    if (event.target === canvas && canOpenHatch(machine.state)) canvas.style.cursor = hitAt(event) ? 'pointer' : 'grab';
+    if (event.target === canvas && canWorkHatch(machine.state)) canvas.style.cursor = hitAt(event) ? 'pointer' : 'grab';
   }
   for (const element of [canvas, slider]) {
     element.addEventListener('pointermove', move, { capture: true });
@@ -99,7 +101,7 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     if (event.key === 'Escape' && (pointer || q || keys)) {
       consume(event); stopPointer(true); stopKeys(true); return;
     }
-    if (event.key.toLowerCase() !== 'q' || !canOpenHatch(machine.state) || event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.key.toLowerCase() !== 'q' || !canWorkHatch(machine.state) || event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     consume(event);
     if (qHeld || keys || (pointer && pointer.kind !== 'screw')) return;
     qHeld = true;
@@ -113,7 +115,7 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     if (q) { consume(event); stopKeys(false); }
   }, { capture: true });
   slider.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || pointer || q || !canOpenHatch(machine.state)) return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || pointer || q || !canWorkHatch(machine.state)) return;
     consume(event);
     if (!keys) {
       machine.dispatch({ type: 'HATCH_DRAG_START' });
@@ -137,24 +139,24 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
   return {
     sync(state) {
       const h = state.hatch;
-      if (pointer && (!canOpenHatch(state) || (pointer.kind === 'screw' && !h.turning) || (pointer.kind === 'hatch' && !h.dragging))) {
+      if (pointer && (!canWorkHatch(state) || (pointer.kind === 'screw' && !h.turning) || (pointer.kind === 'hatch' && !h.dragging))) {
         const g = pointer; pointer = null; release(g);
       }
       if (!h.turning) q = null;
       if (!h.dragging) keys = null;
-      if (!canOpenHatch(state)) qHeld = false;
+      if (!canWorkHatch(state)) qHeld = false;
     },
     frame(now) {
       if (q) {
         const g = q; const elapsed = now - g.last; g.last = now;
         for (const radians of keyTurnSlices(elapsed)) {
           if (!machine.state.hatch.turning) break;
-          machine.dispatch({ type: 'SCREW_TURN_MOVE', gestureId: g.id, radians });
+          machine.dispatch({ type: 'SCREW_TURN_MOVE', gestureId: g.id, radians: machine.state.stepIndex === 3 ? -radians : radians });
         }
       }
       const h = machine.state.hatch;
-      if (h.settling && now - h.settleStartedAt >= HATCH_SETTLE_MS) machine.dispatch({ type: 'HATCH_OPENED', settleId: h.settleId });
-      guide.hidden = !canOpenHatch(machine.state) || !h.selectedScrew || removed(h.screws[h.selectedScrew]);
+      if (h.settling && now - h.settleStartedAt >= HATCH_SETTLE_MS) machine.dispatch({ type: machine.state.stepIndex === 3 ? 'HATCH_CLOSED' : 'HATCH_OPENED', settleId: h.settleId });
+      guide.hidden = !canWorkHatch(machine.state) || (machine.state.stepIndex === 3 && h.opened) || !h.selectedScrew || (machine.state.stepIndex === 3 ? tightened(h.screws[h.selectedScrew]) && h.selectedScrew !== 'Screw_Safety' : removed(h.screws[h.selectedScrew]));
       if (!guide.hidden) {
         const p = pointer?.kind === 'screw' ? pointer.center : screenPoint(h.selectedScrew);
         const rect = canvas.getBoundingClientRect();

@@ -1,3 +1,4 @@
+import { finishMissionByKeyboard } from './final-checks.mjs';
 import assert from 'node:assert/strict';
 
 const ids = Array.from({ length: 6 }, (_, i) => `wire${i + 1}`);
@@ -48,7 +49,7 @@ export async function runWireChecks(page, artifacts, powerOff, openHatch) {
   await page.locator('#welcome-form button[type="submit"]').click();
   for (let i = 0; i < 6; i++) { await page.waitForFunction(() => document.querySelector('#radio-next').textContent !== 'Afficher le message'); await page.locator('#radio-next').click(); }
   await powerOff(page); await openHatch(page); await openWireControls(page);
-  assert.equal(await page.locator('#debug-validate').isDisabled(), true);
+  assert.equal(await page.locator('#debug-validate').count(), 0);
   await page.locator('[data-wire="wire1"]').click();
   assert.equal(await page.locator('[data-wire="wire1"]').getAttribute('data-diagnosis'), 'unknown');
   assert.ok((await page.locator('#wire-feedback').textContent()).includes('lampe'));
@@ -117,7 +118,7 @@ export async function runWireChecks(page, artifacts, powerOff, openHatch) {
   await page.waitForSelector('[data-step="close"][aria-current="step"]');
   assert.equal(await page.locator('[data-step="wires"] .error-marker').count(), 1);
   await page.screenshot({ path: `${artifacts}/faisceau-repare.png` });
-  for (let i = 0; i < 2; i++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await finishMissionByKeyboard(page);
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '3');
   console.log(JSON.stringify({ wires: 'passed', input: dev ? '3D circles, removal, endpoint snapping and keyboard' : 'keyboard', faults: bad.length }));
