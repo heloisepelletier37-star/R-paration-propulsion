@@ -1,0 +1,2 @@
+/* Native fonts keep the app self-contained, including on GitHub Pages. */
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
