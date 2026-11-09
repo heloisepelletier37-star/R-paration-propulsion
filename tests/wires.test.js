@@ -8,7 +8,7 @@ import { keyTurnSlices, pointerAngle } from '../src/steps/step2-hatch.js';
 import { createPlaceholderAssets } from '../src/assets/placeholders.js';
 import { REQUIRED_NODES } from '../src/assets/manifest.js';
 import { createWiringScene, makeWireCurve } from '../src/scene/wiring.js';
-import { finishBriefing, cutPower, openHatch, repairWires, turnTerminal } from '../test-support/procedure.js';
+import { finishBriefing, cutPower, openHatch, repairWires, turnTerminal, closeHatch, finishTest } from '../test-support/procedure.js';
 import { textes } from '../src/ui/textes.js';
 
 function ready(mode = 'training', random = () => 0) {
@@ -175,12 +175,12 @@ test('malformed and stale samples cannot move or attach a wire', () => {
 });
 
 test('evaluation records incorrect marks and colors silently and explains them at debrief', () => {
-  const { machine } = ready('evaluation'); inspect(machine, 'wire2');
+  const { machine, advance } = ready('evaluation'); inspect(machine, 'wire2');
   assert.equal(machine.state.message, null);
   inspect(machine); loosen(machine); remove(machine); machine.dispatch({ type: 'SELECT_TOOL', toolId: 'yellow' }); machine.dispatch({ type: 'WIRE_CHOOSE_REPLACEMENT' });
   assert.equal(machine.state.errors.length, 2); assert.equal(machine.state.message, null);
   repairWires(machine);
-  for (const stepId of ['close', 'test']) machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId });
+  closeHatch(machine, advance); finishTest(machine, advance);
   const transcript = machine.state.messageQueue.map(m => m.text).join(' ');
   assert.ok(transcript.includes(textes.errors.intactWire.rule)); assert.ok(transcript.includes(textes.errors.wrongColor.rule));
 });
@@ -193,9 +193,9 @@ test('two broken wires must both be repaired before stage 4 is available', () =>
 });
 
 test('a full replacement validates stage 3 and a restart draws a fresh harness', () => {
-  const { machine } = ready(); repairWires(machine);
+  const { machine, advance } = ready(); repairWires(machine);
   assert.equal(machine.state.stepIndex, 3); assert.ok(Object.values(machine.state.steps[2].substeps).every(Boolean));
-  for (const stepId of ['close', 'test']) machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId });
+  closeHatch(machine, advance); finishTest(machine, advance);
   machine.dispatch({ type: 'RESTART' });
   assert.ok(machine.state.wires.items.every(w => !w.inspected && !w.marked && !w.removed && !w.replacement));
   assert.equal(machine.state.wires.selected, null);

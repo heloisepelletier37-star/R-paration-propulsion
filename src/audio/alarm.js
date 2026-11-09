@@ -8,6 +8,7 @@ export function createAlarmAudio(camera, alarm) {
   let requested = false;
   let alarmAudible = false;
   let lastEffect = null;
+  const effects = new Set();
   return {
     async setEnabled(value) {
       requested = Boolean(value);
@@ -27,7 +28,10 @@ export function createAlarmAudio(camera, alarm) {
       }
       if (requested) await listener.context.resume();
       enabled = requested;
-      if (!enabled) sound.setVolume(0);
+      if (!enabled) {
+        sound.setVolume(0);
+        for (const effect of effects) { effect.envelope.gain.cancelScheduledValues(listener.context.currentTime); effect.envelope.gain.setValueAtTime(0, listener.context.currentTime); }
+      }
       return enabled;
     },
     ping() {
@@ -52,6 +56,7 @@ export function createAlarmAudio(camera, alarm) {
         shock: [0.13, 'sawtooth', 2500, 140, 0.035], switch: [0.055, 'square', 180, 65, 0.06],
         screw: [0.06, 'triangle', 390, 190, 0.025], slip: [0.18, 'sawtooth', 1800, 320, 0.035],
         blocked: [0.08, 'triangle', 110, 55, 0.05], hatch: [0.12, 'square', 150, 50, 0.035],
+        startup: [2.2, 'sawtooth', 34, 145, 0.045],
       }[kind];
       if (!profile) return;
       const [duration, type, startFrequency, endFrequency, gain] = profile;
@@ -64,7 +69,8 @@ export function createAlarmAudio(camera, alarm) {
       envelope.gain.exponentialRampToValueAtTime(gain, context.currentTime + 0.005);
       envelope.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
       note.connect(envelope); envelope.connect(listener.getInput());
-      note.onended = () => { note.disconnect(); envelope.disconnect(); };
+      const effect = { note, envelope }; effects.add(effect);
+      note.onended = () => { effects.delete(effect); note.disconnect(); envelope.disconnect(); };
       note.start(); note.stop(context.currentTime + duration + 0.01);
     },
     update(elapsed, powered = true, alarmActive = true) {
@@ -77,6 +83,9 @@ export function createAlarmAudio(camera, alarm) {
         sound.gain.gain.cancelScheduledValues(time);
         sound.gain.gain.setValueAtTime(0, time);
       } else sound.setVolume(alarmAudible ? 0.045 : 0);
+    },
+    stopEffects() {
+      for (const effect of effects) { effect.envelope.gain.cancelScheduledValues(listener.context.currentTime); effect.envelope.gain.setValueAtTime(0, listener.context.currentTime); effect.note.stop(); }
     },
     snapshot() { return { enabled, alarmAudible, volume: sound?.getVolume() ?? 0, lastEffect }; },
   };

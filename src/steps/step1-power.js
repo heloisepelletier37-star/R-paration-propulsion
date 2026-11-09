@@ -10,7 +10,7 @@ export const clampProgress = value => Math.min(1, Math.max(0, value));
 export const passesThreshold = value => Number.isFinite(value) && value > LEVER_THRESHOLD;
 export const dragProgress = (initial, startY, currentY, travel) => clampProgress(initial + (currentY - startY) / Math.max(1, travel));
 export const smoothProgress = value => { const p = clampProgress(value); return p * p * (3 - 2 * p); };
-export const coverProgress = (power, now) => power.cover === 'closed' ? 0 : power.cover === 'open' ? 1 : clampProgress((now - power.coverStartedAt) / COVER_DURATION_MS);
+export const coverProgress = (power, now) => power.cover === 'closed' ? 0 : power.cover === 'open' ? 1 : power.cover === 'closing' ? 1 - clampProgress((now - power.coverStartedAt) / COVER_DURATION_MS) : clampProgress((now - power.coverStartedAt) / COVER_DURATION_MS);
 
 export function initialPowerState() {
   return { circuitOn: true, cover: 'closed', coverId: 0, coverStartedAt: null,

@@ -19,7 +19,17 @@ export function createProcedureProjection(root, renderer) {
     return bounds;
   };
   const hatchBounds = localBoundsOf(hinge);
-  const hatchHandle = new THREE.Vector3(hatchBounds.max.x - 0.06, 0, hatchBounds.max.z + 0.005);
+  // Use the broad plate, not protruding handles, to place the grip on a real face.
+  let plate = hatchBounds; let area = 0;
+  const inverseHinge = hinge.matrixWorld.clone().invert();
+  root.getObjectByName('Hatch').traverse(node => {
+    if (!node.isMesh) return;
+    node.geometry.computeBoundingBox();
+    const bounds = node.geometry.boundingBox.clone().applyMatrix4(inverseHinge.clone().multiply(node.matrixWorld));
+    const size = bounds.getSize(new THREE.Vector3());
+    if (size.x * size.y > area) { area = size.x * size.y; plate = bounds; }
+  });
+  const hatchHandle = new THREE.Vector3(THREE.MathUtils.lerp(plate.min.x, plate.max.x, 0.94), (plate.min.y + plate.max.y) / 2, plate.max.z);
   const scratchMaterial = new THREE.LineBasicMaterial({ color: 0xd3a16d, depthTest: true });
   const screws = ALL_SCREWS.map(id => {
     const node = root.getObjectByName(id); const bounds = localBoundsOf(node);
@@ -78,30 +88,34 @@ export function createProcedureProjection(root, renderer) {
     return point.clone().applyMatrix4(matrix).applyMatrix4(lever.parent.matrixWorld);
   }
 
-  function hatchPoint(progress) {
+  function hatchPoint(progress, camera) {
     hinge.parent.updateWorldMatrix(true, false);
     const quaternion = bases.get(hinge).clone().multiply(new THREE.Quaternion().setFromAxisAngle(yAxis, HATCH_ANGLE * progress));
-    return hatchHandle.clone().applyMatrix4(new THREE.Matrix4().compose(hinge.position, quaternion, hinge.scale)).applyMatrix4(hinge.parent.matrixWorld);
+    const matrix = new THREE.Matrix4().compose(hinge.position, quaternion, hinge.scale).premultiply(hinge.parent.matrixWorld);
+    const point = hatchHandle.clone();
+    const cameraZ = camera ? camera.getWorldPosition(new THREE.Vector3()).applyMatrix4(matrix.clone().invert()).z
+      : progress > 90 / 110 ? plate.min.z - 1 : plate.max.z + 1;
+    point.z = cameraZ >= (plate.min.z + plate.max.z) / 2 ? plate.max.z : plate.min.z;
+    return point.applyMatrix4(matrix);
   }
 
   return {
     update(state, now = Date.now()) {
       latest = state;
       const pose = sceneState(state);
-      const targetHatch = state.steps[3].completed ? 0 : state.hatch.progress;
+      const targetHatch = state.hatch.progress;
       if (hatchSpring.to !== targetHatch || hatchSpring.dragging !== state.hatch.dragging) {
         hatchSpring = { from: visualHatch, to: targetHatch, at: now, dragging: state.hatch.dragging,
           duration: state.hatch.dragging ? 65 : HATCH_SETTLE_MS };
       }
       for (const entry of screws) {
         const screw = state.hatch.screws[entry.id];
-        const refastened = state.steps[3].completed;
-        const turns = refastened ? 0 : screw.turns;
-        if (entry.lastTurns === turns && entry.lastScratch === screw.scratched) continue;
+        const turns = screw.turns;
+        const visible = !removed(screw) || (state.stepIndex >= 3 && !state.hatch.opened);
+        if (entry.lastTurns === turns && entry.lastScratch === screw.scratched && entry.node.visible === visible) continue;
         entry.lastTurns = turns; entry.lastScratch = screw.scratched;
         entry.node.position.copy(entry.position).add(new THREE.Vector3(0, 0, SCREW_TRAVEL * extraction(turns)).applyQuaternion(entry.quaternion));
         entry.node.quaternion.copy(entry.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), turns * TAU));
-        const visible = refastened || !removed(screw);
         renderer.shadowMap.needsUpdate = true;
         entry.node.visible = visible; entry.scratch.visible = screw.scratched;
       }
@@ -124,7 +138,10 @@ export function createProcedureProjection(root, renderer) {
       if (!latest) return;
       visualCover = coverProgress(latest.power, now);
       visualHatch = THREE.MathUtils.lerp(hatchSpring.from, hatchSpring.to, smoothProgress((now - hatchSpring.at) / hatchSpring.duration));
-      setRotation(hinge, yAxis, HATCH_ANGLE * visualHatch);
+      const crooked = latest.hatch.crossWarning && latest.hatch.closeOrder.length < 4;
+      const hingePose = bases.get(hinge).clone().multiply(new THREE.Quaternion().setFromAxisAngle(yAxis, HATCH_ANGLE * visualHatch));
+      if (crooked) hingePose.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0.018));
+      if (hinge.quaternion.angleTo(hingePose) > 1e-6) { hinge.quaternion.copy(hingePose); renderer.shadowMap.needsUpdate = true; }
       if (!latest.power.dragging) visualLever = THREE.MathUtils.lerp(spring.from, spring.to, smoothProgress((now - spring.at) / LEVER_RETURN_MS));
       setRotation(cover, xAxis, COVER_ANGLE * smoothProgress(visualCover));
       setRotation(lever, xAxis, LEVER_ANGLE * visualLever);
@@ -136,10 +153,10 @@ export function createProcedureProjection(root, renderer) {
       const b = leverPoint(1, point).project(camera);
       return Math.max(32, Math.abs(a.y - b.y) * height / 2);
     },
-    targetPoint(name) {
+    targetPoint(name, camera) {
       root.updateWorldMatrix(true, true);
       if (name === 'Breaker_Lever') return leverPoint(visualLever);
-      if (name === 'Hatch_Edge') return hatchPoint(visualHatch);
+      if (name === 'Hatch_Edge') return hatchPoint(visualHatch, camera);
       const screw = screws.find(entry => entry.id === name);
       if (screw) return screw.node.localToWorld(new THREE.Vector3(0, 0, screw.front));
       return new THREE.Box3().setFromObject(root.getObjectByName(name)).getCenter(new THREE.Vector3());
@@ -149,11 +166,11 @@ export function createProcedureProjection(root, renderer) {
       return local.x >= THREE.MathUtils.lerp(hatchBounds.min.x, hatchBounds.max.x, 0.72);
     },
     hatchTravel(camera, width) {
-      const start = hatchPoint(0).project(camera); const end = hatchPoint(1).project(camera);
+      const start = hatchPoint(0, camera).project(camera); const end = hatchPoint(1, camera).project(camera);
       return Math.max(72, Math.abs(start.x - end.x) * width / 2);
     },
     snapshot() {
-      return { coverProgress: visualCover, leverProgress: visualLever, hatchProgress: visualHatch,
+      return { coverProgress: visualCover, leverProgress: visualLever, hatchProgress: visualHatch, crooked: latest.hatch.crossWarning && latest.hatch.closeOrder.length < 4,
         screws: screws.filter(entry => SCREWS.includes(entry.id)).map(entry => ({ id: entry.id, visible: entry.node.visible, position: entry.node.position.toArray(), scratched: entry.scratch.visible })),
         ledEmissive: ledMaterials.map(({ material }) => material.emissiveIntensity ?? 0) };
     },

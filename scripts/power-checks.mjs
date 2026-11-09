@@ -1,3 +1,4 @@
+import { finishMissionByKeyboard } from './final-checks.mjs';
 import assert from 'node:assert/strict';
 import { openHatchByKeyboard } from './hatch-checks.mjs';
 import { repairWiresByKeyboard } from './wires-checks.mjs';
@@ -29,7 +30,7 @@ async function begin(page, mode) {
 async function finishRemaining(page) {
   await openHatchByKeyboard(page);
   await repairWiresByKeyboard(page);
-  for (let index = 0; index < 2; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await finishMissionByKeyboard(page);
   await page.waitForSelector('#app[data-phase="debrief"]');
 }
 

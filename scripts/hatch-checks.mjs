@@ -1,3 +1,4 @@
+import { finishMissionByKeyboard } from './final-checks.mjs';
 import assert from 'node:assert/strict';
 import { repairWiresByKeyboard } from './wires-checks.mjs';
 
@@ -41,7 +42,7 @@ export async function runHatchChecks(page, artifacts, powerOff) {
   const dev = await page.evaluate(() => Boolean(window.__MARS_DEBUG__));
   const snapshot = () => page.evaluate(() => window.__MARS_DEBUG__.snapshot());
   const targets = async () => (await snapshot()).hatchTargets;
-  assert.equal(await page.locator('#debug-validate').isDisabled(), true);
+  assert.equal(await page.locator('#debug-validate').count(), 0);
   await page.locator('[data-tool="flat"]').click();
   if (dev) { const t = await targets(); await page.mouse.click(t.screws.Screw_TL.x, t.screws.Screw_TL.y); }
   else { await screw(page, 'Screw_TL').click(); await page.keyboard.press('q'); }
@@ -119,7 +120,7 @@ export async function runHatchChecks(page, artifacts, powerOff) {
   await page.locator('#lamp').click();
   await page.screenshot({ path: `${artifacts}/trappe-ouverte.png` });
   await repairWiresByKeyboard(page);
-  for (let i = 0; i < 2; i++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await finishMissionByKeyboard(page);
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '2');
   console.log(JSON.stringify({ hatch: 'passed', input: dev ? '3D circles, 3D pull and keyboard' : 'keyboard',

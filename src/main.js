@@ -74,6 +74,7 @@ async function start() {
   let lastRelease = 0;
   let lastHatchSound = 0;
   let lastWireSound = 0;
+  let lastStartup = 0;
 
   function notifyMessage(state) {
     if (state.phase === 'welcome') lastSoundMessage = undefined;
@@ -126,16 +127,20 @@ async function start() {
     audio.update(lastElapsed, pose.circuitOn, pose.alarmActive);
     if (lastCircuit !== undefined && lastCircuit !== pose.circuitOn) audio.effect('switch');
     lastCircuit = pose.circuitOn;
-    if (state.phase === 'welcome') { lastShock = 0; lastRelease = 0; lastHatchSound = 0; lastWireSound = 0; }
+    if (state.phase === 'welcome') { lastStartup = 0; audio.stopEffects(); lastShock = 0; lastRelease = 0; lastHatchSound = 0; lastWireSound = 0; }
     if (state.shock.id !== lastShock) { lastShock = state.shock.id; if (lastShock) audio.effect('shock'); }
     if (state.power.releaseId !== lastRelease) {
       lastRelease = state.power.releaseId;
       const outcome = state.power.lastRelease;
-      hud.feedback(outcome === 'short' ? textes.powerControls.short : outcome === 'success' ? textes.powerControls.cut : textes.powerControls.cancelled);
+      hud.feedback(outcome === 'short' ? textes.powerControls.short : outcome === 'success' ? textes.powerControls.cut : outcome === 'restored' ? textes.powerControls.restored : textes.powerControls.cancelled);
     }
     if (state.hatch.soundId !== lastHatchSound) {
       lastHatchSound = state.hatch.soundId;
       if (lastHatchSound) audio.effect(state.hatch.soundKind);
+    }
+    if (state.test.startupId !== lastStartup) {
+      lastStartup = state.test.startupId;
+      if (lastStartup) { audio.effect('startup'); view.startPropulsion(state.test.startupAt); hud.feedback(textes.testControls.startup); }
     }
     if (state.wires.soundId !== lastWireSound) { lastWireSound = state.wires.soundId; if (lastWireSound) audio.effect(state.wires.soundKind); }
     notifyMessage(state);

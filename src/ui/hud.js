@@ -1,7 +1,8 @@
 import { textes as t } from './textes.js';
-import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker, canOpenHatch, canRepairWires } from '../state/procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker, canOperatePowerBox, canCloseHatch, canWorkHatch, canRepairWires } from '../state/procedure.js';
 import { isScrewdriver } from '../steps/step1-power.js';
 import { ALL_SCREWS, removed, removedCount } from '../steps/step2-hatch.js';
+import { tightened, tightenedCount, storedScrews } from '../steps/step4-close.js';
 import { WIRE_DEFS, SIDES } from '../steps/step3-wires.js';
 import { briefingCount, stepStatus } from '../state/machine.js';
 import { icon } from './icons.js';
@@ -32,11 +33,6 @@ export function createHud() {
         <h2 id="checklist-title">${t.checklist.title}</h2>
         <p id="procedure-progress" class="small-note"></p>
         <ol id="checklist" class="checklist"></ol>
-        <section class="debug-panel" aria-label="${t.debug.title}">
-          <span class="eyebrow">${t.debug.badge}</span><p>${t.debug.note}</p>
-          <button id="debug-validate" type="button">${t.debug.validate}</button>
-          <button id="debug-error" class="quiet-button" type="button">${t.debug.error}</button>
-        </section>
       </aside>
       <section class="scene-shell" aria-label="${t.title}">
         <canvas id="mars-view" tabindex="0" role="img" aria-label="${t.sceneLabel}"></canvas>
@@ -46,10 +42,17 @@ export function createHud() {
         <div id="screw-guide" class="screw-guide" aria-hidden="true" hidden><span id="screw-guide-value"></span></div>
         <p id="hatch-feedback" class="hatch-feedback" role="status" hidden></p>
         <p id="wire-feedback" class="hatch-feedback" role="status" hidden></p>
+        <p id="test-feedback" class="test-feedback" role="status" hidden></p>
         <div id="scene-lock" class="scene-lock"><span>${t.controls.locked}</span></div>
         <div class="scene-help"><span id="scene-instructions">${t.controls.look}</span><small>${t.controls.zoom}</small></div>
         <section id="summary" class="summary" aria-labelledby="summary-title" hidden>
-          <span class="eyebrow">${t.debug.badge}</span><h2 id="summary-title">${t.debrief.title}</h2><p>${t.debrief.note}</p>
+          <span class="eyebrow">${t.debrief.eyebrow}</span><h2 id="summary-title">${t.debrief.title}</h2><p>${t.debrief.note}</p>
+          <dl class="summary-metrics"><div><dt>${t.debrief.score}</dt><dd id="summary-score"></dd></div><div><dt>${t.debrief.time}</dt><dd id="summary-time"></dd></div></dl>
+          <p id="summary-deductions" class="small-note"></p><p class="score-rules">${t.debrief.rubric}</p>
+          <h3>${t.debrief.errors}</h3><div id="summary-errors"></div>
+          <h3>${t.debrief.hints}</h3><ul id="summary-hints"></ul>
+          <h3>${t.debrief.warnings}</h3><ul id="summary-warnings"></ul>
+          <button id="export-report" type="button">${t.debrief.export}</button>
           <button id="restart" class="primary-button" type="button">${t.debrief.restart}</button>
         </section>
       </section>
@@ -65,9 +68,9 @@ export function createHud() {
         </details>
         <details id="hatch-controls" class="power-controls" hidden><summary>${t.hatchControls.title}</summary>
           <div class="screw-choices" role="group" aria-label="${t.hatchControls.screwsTitle}">${ALL_SCREWS.map(id => `<button type="button" data-screw="${id}" aria-pressed="false">${t.hatchControls.names[id]}<small></small></button>`).join('')}</div>
-          <p class="small-note">${t.hatchControls.keyboard}</p>
+          <p id="screw-keyboard" class="small-note">${t.hatchControls.keyboard}</p>
           <div id="hatch-pull" role="slider" aria-label="${t.hatchControls.pullLabel}" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="110" aria-valuenow="0" tabindex="-1"><span aria-hidden="true">←</span></div>
-          <p id="hatch-angle" class="small-note"></p><p class="small-note">${t.hatchControls.pullKeyboard}</p>
+          <p id="hatch-angle" class="small-note"></p><p id="hatch-keyboard" class="small-note">${t.hatchControls.pullKeyboard}</p><button id="check-closure" type="button" hidden>${t.closeControls.check}</button>
         </details>
         <details id="wire-controls" class="power-controls" hidden><summary>${t.wireControls.title}</summary>
           <div class="wire-choices" role="group" aria-label="${t.wireControls.choose}">${WIRE_DEFS.map(wire => `<button type="button" data-wire="${wire.id}" aria-pressed="false">${t.wireControls.wire(wire.index, t.wireControls.colors[wire.color])}<small></small></button>`).join('')}</div>
@@ -138,13 +141,18 @@ export function createHud() {
   $('#radio-toggle').addEventListener('click', () => emit({ type: 'TOGGLE_RADIO' }));
   $('#briefing').addEventListener('click', () => emit({ type: 'REPLAY_BRIEFING' }));
   $('#help').addEventListener('click', () => emit({ type: 'REQUEST_HINT' }));
-  $('#debug-validate').addEventListener('click', event => {
-    if (event.detail < 2) emit({ type: 'DEBUG_VALIDATE_STEP', stepId: currentStep(state).id });
-  });
-  $('#debug-error').addEventListener('click', () => emit({ type: 'RECORD_ERROR', stepId: currentStep(state).id, code: currentStep(state).error, source: 'debug' }));
   $('#restart').addEventListener('click', () => emit({ type: 'RESTART' }));
   $('#put-down').addEventListener('click', () => emit({ type: 'SELECT_TOOL', toolId: null }));
-  $('#power-cover').addEventListener('click', () => emit({ type: 'OPEN_POWER_COVER' }));
+  $('#power-cover').addEventListener('click', () => emit({ type: state.stepIndex === 4 && state.power.cover === 'open' ? 'CLOSE_POWER_COVER' : 'OPEN_POWER_COVER' }));
+  $('#check-closure').addEventListener('click', () => emit({ type: 'CHECK_CLOSURE' }));
+  $('#export-report').addEventListener('click', () => {
+    if (!state.report) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(state.report, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = t.debrief.exportName;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    $('#feedback').textContent = t.debrief.exportDone;
+  });
   $('#hatch-contact').addEventListener('click', () => emit({ type: 'TOUCH_HATCH', nodeName: 'Hatch' }));
   $('.screw-choices').addEventListener('click', event => {
     const button = event.target.closest('[data-screw]');
@@ -204,6 +212,23 @@ export function createHud() {
     }).join('');
   }
 
+  let reportSignature;
+  function renderReport(report) {
+    const signature = JSON.stringify(report);
+    if (!report || signature === reportSignature) return;
+    reportSignature = signature;
+    $('#summary-score').textContent = t.debrief.scoreValue(report.score.value);
+    $('#summary-time').textContent = formatTime(report.elapsedMs);
+    $('#summary-deductions').textContent = t.debrief.deductions(report.score.errorPenalty, report.score.hintPenalty);
+    $('#summary-errors').innerHTML = report.steps.map(step => {
+      const counts = new Map();
+      step.errors.forEach(e => counts.set(e.code, { ...e, count: (counts.get(e.code)?.count ?? 0) + 1 }));
+      return `<section><h4>${step.title}</h4>${counts.size ? `<ul>${[...counts.values()].map(e => `<li>${e.label} · ${t.debrief.errorCount(e.count)}<small>${e.rule}</small></li>`).join('')}</ul>` : `<p>${t.debrief.noErrors}</p>`}</section>`;
+    }).join('');
+    $('#summary-hints').innerHTML = report.hints.length ? report.hints.map(h => `<li>${t.debrief.hint(t.steps[h.stepId].title, h.level)} · ${formatTime(h.atMs)}</li>`).join('') : `<li>${t.debrief.noHints}</li>`;
+    $('#summary-warnings').innerHTML = report.warnings.length ? report.warnings.map(w => `<li>${w.label}</li>`).join('') : `<li>${t.debrief.noWarnings}</li>`;
+  }
+
   return {
     canvas, app,
     leverControl: $('#power-lever'),
@@ -233,7 +258,7 @@ export function createHud() {
       $('.scene-shell').classList.toggle('is-shocked', s.shock.active);
       app.dataset.shock = String(s.shock.id);
       $('#shock-alert').hidden = !s.shock.active;
-      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : active && s.stepIndex === 1 ? t.hatchControls.pointer : active && s.stepIndex === 2 ? t.wireControls.pointer : t.controls.look;
+      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : active && s.stepIndex === 1 ? t.hatchControls.pointer : active && s.stepIndex === 2 ? t.wireControls.pointer : active && s.stepIndex === 3 ? t.closeControls.pointer : active && s.stepIndex === 4 ? t.powerControls.restorePointer : t.controls.look;
       $('#mode-label').textContent = s.mode ? t.modes[s.mode] : t.welcome.choice;
       $('#procedure-progress').textContent = t.checklist.progress(s.steps.filter(step => step.completed).length, STEPS.length);
       $('#current-step').textContent = finished ? t.debrief.title : t.steps[currentStep(s).id].title;
@@ -246,12 +271,14 @@ export function createHud() {
       $('#alarm-status').dataset.active = String(physical.alarmActive);
       $('#lamp').setAttribute('aria-pressed', String(s.headlamp));
       $('#audio').setAttribute('aria-pressed', String(s.audio));
-      for (const selector of ['#lamp', '#reset', '#debug-error']) $(selector).disabled = !active;
+      for (const selector of ['#lamp', '#reset']) $(selector).disabled = !active;
       $('#reset').disabled = !active || s.power.dragging || s.hatch.turning || s.hatch.dragging || Boolean(s.wires.gesture);
-      $('#debug-validate').disabled = !active || s.stepIndex < 3;
-      $('#debug-validate').title = s.stepIndex === 0 ? t.debug.realPower : s.stepIndex === 1 ? t.debug.realHatch : s.stepIndex === 2 ? t.debug.realWires : t.debug.validate;
-      $('#power-cover').disabled = !canUseBreaker(s) || s.power.cover !== 'closed';
-      $('#power-cover').textContent = s.power.cover === 'closed' ? t.powerControls.cover : s.power.cover === 'opening' ? t.powerControls.opening : t.powerControls.opened;
+      $('#power-controls').hidden = finished;
+      const restoring = s.stepIndex === 4;
+      $('#power-cover').disabled = !canOperatePowerBox(s) || (restoring ? !s.power.circuitOn || s.power.cover !== 'open' : s.power.cover !== 'closed');
+      $('#power-cover').textContent = s.power.cover === 'opening' ? t.powerControls.opening : s.power.cover === 'closing' ? t.powerControls.closing
+        : restoring ? s.power.cover === 'closed' ? t.powerControls.closed : t.powerControls.close : s.power.cover === 'closed' ? t.powerControls.cover : t.powerControls.opened;
+      $('#lever-keyboard').textContent = restoring ? t.powerControls.restoreKeyboard : t.powerControls.keyboard;
       const leverEnabled = canUseBreaker(s) && s.power.cover === 'open';
       $('#power-lever').setAttribute('aria-disabled', String(!leverEnabled));
       $('#power-lever').tabIndex = leverEnabled ? 0 : -1;
@@ -266,17 +293,26 @@ export function createHud() {
       if (s.shock.active || (s.power.releaseId !== powerReleaseId && s.power.lastRelease === 'success')) $('#power-controls').open = false;
       powerReleaseId = s.power.releaseId;
       const h = s.hatch;
-      $('#hatch-controls').hidden = s.stepIndex !== 1 || finished;
-      const hatchEnabled = canOpenHatch(s);
-      $('#screw-count').textContent = t.hatchControls.counter(s.steps[3].completed ? 0 : removedCount(h));
+      const closing = s.stepIndex === 3;
+      $('#hatch-controls').hidden = ![1, 3].includes(s.stepIndex) || finished;
+      const hatchEnabled = canWorkHatch(s);
+      $('#hatch-controls summary').textContent = closing ? t.closeControls.title : t.hatchControls.title;
+      $('#screw-keyboard').textContent = closing ? t.closeControls.keyboard : t.hatchControls.keyboard;
+      $('#hatch-keyboard').textContent = closing ? t.closeControls.pullKeyboard : t.hatchControls.pullKeyboard;
+      $('#hatch-pull').setAttribute('aria-label', closing ? t.closeControls.pullLabel : t.hatchControls.pullLabel);
+      $('#hatch-pull span').textContent = closing ? '→' : '←';
+      $('#check-closure').hidden = !closing;
+      $('#check-closure').disabled = !canCloseHatch(s) || h.turning || h.dragging;
+      $('#screw-count').textContent = closing || s.stepIndex === 4 ? t.closeControls.counter(tightenedCount(h)) : t.hatchControls.counter(storedScrews(h));
       $('#screw-count').hidden = !s.hasBegun;
       for (const button of $('.screw-choices').querySelectorAll('[data-screw]')) {
         const id = button.dataset.screw; const screw = h.screws[id];
-        button.disabled = !hatchEnabled || removed(screw);
+        button.disabled = !hatchEnabled || (closing ? h.opened || (id !== 'Screw_Safety' && tightened(screw)) : removed(screw));
+        button.dataset.turns = String(screw.turns);
         button.setAttribute('aria-pressed', String(h.selectedScrew === id));
-        button.querySelector('small').textContent = removed(screw) ? t.hatchControls.removedLabel : t.hatchControls.turns(screw.turns);
+        button.querySelector('small').textContent = closing ? tightened(screw) ? t.closeControls.tight : t.closeControls.turns(screw.turns) : removed(screw) ? t.hatchControls.removedLabel : t.hatchControls.turns(screw.turns);
       }
-      const pullEnabled = hatchEnabled && removedCount(h) === 4;
+      const pullEnabled = hatchEnabled && (closing ? h.opened : removedCount(h) === 4);
       $('#hatch-pull').setAttribute('aria-disabled', String(!pullEnabled));
       $('#hatch-pull').tabIndex = pullEnabled ? 0 : -1;
       const angle = Math.round(h.progress * 110);
@@ -284,14 +320,18 @@ export function createHud() {
       $('#hatch-pull').setAttribute('aria-valuetext', t.hatchControls.angle(angle));
       $('#hatch-pull').style.setProperty('--hatch-progress', h.progress);
       $('#hatch-angle').textContent = t.hatchControls.angle(angle);
-      $('#screw-guide-value').textContent = h.selectedScrew ? t.hatchControls.turns(h.screws[h.selectedScrew].turns) : '';
-      $('#hatch-feedback').hidden = !active || s.stepIndex !== 1 || !h.feedbackCode;
+      $('#screw-guide-value').textContent = h.selectedScrew ? (closing ? t.closeControls.turns : t.hatchControls.turns)(h.screws[h.selectedScrew].turns) : '';
+      $('#hatch-feedback').hidden = !active || ![1, 3].includes(s.stepIndex) || !h.feedbackCode;
       if (h.feedbackId !== hatchFeedbackId) {
         hatchFeedbackId = h.feedbackId;
-        const feedback = (s.mode === 'evaluation' ? t.hatchControls.evaluation[h.feedbackCode] : null) ?? t.hatchControls.feedback[h.feedbackCode] ?? '';
+        const feedback = (closing ? (s.mode === 'evaluation' ? t.closeControls.physical[h.feedbackCode] : null) ?? t.closeControls.feedback[h.feedbackCode] : null)
+          ?? (s.mode === 'evaluation' ? t.hatchControls.evaluation[h.feedbackCode] : null) ?? t.hatchControls.feedback[h.feedbackCode] ?? '';
         $('#hatch-feedback').textContent = feedback;
       }
-      if (s.stepIndex !== 1) $('#hatch-controls').open = false;
+      if (![1, 3].includes(s.stepIndex)) $('#hatch-controls').open = false;
+      $('#test-feedback').hidden = s.test.status !== 'pending' && !(s.test.status === 'failed' && s.power.circuitOn);
+      $('#test-feedback').textContent = s.test.status === 'pending' ? t.testControls.pending : t.testControls.failed;
+      app.dataset.test = s.test.status;
       const repair = canRepairWires(s); const w = s.wires.items.find(item => item.id === s.wires.selected);
       $('#wire-controls').hidden = s.stepIndex !== 2 || finished;
       if (s.stepIndex === 2 && !wireStage) $('#wire-controls').open = true;
@@ -343,6 +383,7 @@ export function createHud() {
       $('#help').hidden = s.mode !== 'training'; $('#help').disabled = !active;
       $('#help').title = s.steps[s.stepIndex].hintLevel === 3 ? t.radio.demoAgain : t.radio.help;
       $('#summary').hidden = !finished;
+      renderReport(s.report);
       for (const button of $('.toolbelt').querySelectorAll('button')) {
         button.disabled = !active; button.setAttribute('aria-pressed', String(button.dataset.tool === s.selectedTool));
       }

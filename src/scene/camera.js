@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { STARTUP_DURATION_MS } from '../steps/step5-test.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export const VIEW_LIMITS = Object.freeze({ yaw: 0.34, pitch: 0.2, minFov: 46, maxFov: 58 });
@@ -31,6 +32,7 @@ export function createFirstPersonCamera(canvas) {
   const spherical = new THREE.Spherical();
   let lensFov = 50;
   let shake = 0;
+  let startupAt = null;
   let inspection = null;
   let busy = false;
   let transitioning = false;
@@ -54,7 +56,7 @@ export function createFirstPersonCamera(canvas) {
   }
 
   function reset() {
-    inspection = null; transitioning = false;
+    inspection = null; transitioning = false; startupAt = null; shake = 0;
     // Clear pending mouse inertia before restoring the saved forward view.
     controls.enableDamping = false;
     controls.update();
@@ -96,6 +98,7 @@ export function createFirstPersonCamera(canvas) {
     camera,
     controls,
     reset,
+    startPropulsion(at) { startupAt = at; },
     setShake(strength) { shake = THREE.MathUtils.clamp(strength, 0, 1); },
     setBusy(value) { busy = value; },
     inspect(target) {
@@ -127,10 +130,12 @@ export function createFirstPersonCamera(canvas) {
         camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, blend); camera.updateProjectionMatrix();
         if (!inspection && camera.position.distanceTo(targetEye) < 0.001) transitioning = false;
       }
-      if (!motionQuery.matches && shake) {
-        camera.position.x += Math.sin(elapsed * 83) * 0.014 * shake;
-        camera.position.y += Math.cos(elapsed * 97) * 0.01 * shake;
-        camera.rotateZ(Math.sin(elapsed * 71) * 0.008 * shake);
+      const startup = startupAt === null ? 0 : Math.max(0, 1 - (Date.now() - startupAt) / STARTUP_DURATION_MS) * 0.16;
+      const vibration = Math.max(shake, startup);
+      if (!motionQuery.matches && vibration) {
+        camera.position.x += Math.sin(elapsed * 83) * 0.014 * vibration;
+        camera.position.y += Math.cos(elapsed * 97) * 0.01 * vibration;
+        camera.rotateZ(Math.sin(elapsed * 71) * 0.008 * vibration);
       }
     },
     resize(width, height) {
