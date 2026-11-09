@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { canOpenHatch } from '../state/procedure.js';
-import { ALL_SCREWS, removed, removedCount, pointerAngle, circularDelta, hatchDragProgress, HATCH_SETTLE_MS, KEY_TURN_SPEED } from '../steps/step2-hatch.js';
+import { ALL_SCREWS, removed, removedCount, pointerAngle, circularDelta, hatchDragProgress, HATCH_SETTLE_MS, keyTurnSlices } from '../steps/step2-hatch.js';
 import { firstPowerHit } from './power.js';
 
 export function createHatchInteractions({ canvas, controls, slider, guide, root, camera, machine, projection }) {
@@ -99,11 +99,12 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     if (event.key === 'Escape' && (pointer || q || keys)) {
       consume(event); stopPointer(true); stopKeys(true); return;
     }
-    if (event.key.toLowerCase() !== 'q' || !canOpenHatch(machine.state) || (!controls.contains(event.target) && event.target !== canvas)) return;
+    if (event.key.toLowerCase() !== 'q' || !canOpenHatch(machine.state) || event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     consume(event);
-    if (qHeld || pointer || keys) return;
+    if (qHeld || keys || (pointer && pointer.kind !== 'screw')) return;
     qHeld = true;
-    machine.dispatch({ type: 'SCREW_TURN_START' });
+    if (pointer?.kind === 'screw') { const g = pointer; pointer = null; release(g); }
+    else machine.dispatch({ type: 'SCREW_TURN_START' });
     if (machine.state.hatch.turning) q = { id: machine.state.hatch.gestureId, last: Date.now() };
   }, { capture: true });
   window.addEventListener('keyup', event => {
@@ -145,8 +146,11 @@ export function createHatchInteractions({ canvas, controls, slider, guide, root,
     },
     frame(now) {
       if (q) {
-        const elapsed = Math.max(0, Math.min(100, now - q.last)); q.last = now;
-        machine.dispatch({ type: 'SCREW_TURN_MOVE', gestureId: q.id, radians: KEY_TURN_SPEED * elapsed / 1000 });
+        const g = q; const elapsed = now - g.last; g.last = now;
+        for (const radians of keyTurnSlices(elapsed)) {
+          if (!machine.state.hatch.turning) break;
+          machine.dispatch({ type: 'SCREW_TURN_MOVE', gestureId: g.id, radians });
+        }
       }
       const h = machine.state.hatch;
       if (h.settling && now - h.settleStartedAt >= HATCH_SETTLE_MS) machine.dispatch({ type: 'HATCH_OPENED', settleId: h.settleId });

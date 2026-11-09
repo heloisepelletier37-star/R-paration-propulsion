@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { repairWiresByKeyboard } from './wires-checks.mjs';
 
 const ids = ['Screw_TL', 'Screw_TR', 'Screw_BL', 'Screw_BR'];
 const screw = (page, id) => page.locator(`[data-screw="${id}"]`);
@@ -18,11 +19,11 @@ export async function openHatchByKeyboard(page) {
   await page.locator('#hatch-pull').focus(); await page.keyboard.press('End');
   await page.waitForSelector('[data-step="wires"][aria-current="step"]');
 }
-async function circle(page, center, clockwise, turns, stopId) {
+async function circle(page, center, clockwise, turns, stopId, radius = 29) {
   await page.mouse.move(center.x, center.y); await page.mouse.down();
   for (let i = 0; i <= turns * 24; i++) {
     const a = i / 24 * Math.PI * 2;
-    await page.mouse.move(center.x + Math.cos(a) * 29, center.y + Math.sin(a) * 29 * (clockwise ? 1 : -1));
+    await page.mouse.move(center.x + Math.cos(a) * radius, center.y + Math.sin(a) * radius * (clockwise ? 1 : -1));
     if (stopId && await screw(page, stopId).isDisabled()) break;
   }
   await page.mouse.up();
@@ -61,6 +62,12 @@ export async function runHatchChecks(page, artifacts, powerOff) {
   assert.equal(await page.locator('#hatch-pull').getAttribute('aria-disabled'), 'true');
   // Q means the letter Q, including on AZERTY (where its physical code is KeyA).
   await screw(page, 'Screw_TR').click();
+  // Choosing the tool after selecting a screw must not disable the shortcut.
+  await page.locator('[data-tool="phillips"]').click();
+  if (await page.locator('[data-tool="phillips"]').getAttribute('aria-pressed') !== 'true') await page.locator('[data-tool="phillips"]').click();
+  await page.keyboard.down('q');
+  try { await page.waitForFunction(() => !document.querySelector('[data-screw="Screw_TR"] small').textContent.startsWith('0,0'), null, { timeout: 5000 }); }
+  finally { await page.keyboard.up('q'); }
   await screw(page, 'Screw_TR').evaluate(button => button.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', code: 'KeyA', bubbles: true })));
   try {
     await page.waitForFunction(() => !document.querySelector('[data-screw="Screw_TR"] small').textContent.startsWith('0,0'));
@@ -73,10 +80,14 @@ export async function runHatchChecks(page, artifacts, powerOff) {
     await circle(page, t.screws.Screw_TL, true, 1);
     assert.equal((await snapshot()).state.hatch.screws.Screw_TL.turns, 0);
     assert.equal((await snapshot()).state.hatch.feedbackCode, 'clockwise');
-    await circle(page, t.screws.Screw_TL, false, 1.5);
+    await circle(page, t.screws.Screw_TL, false, 1.5, null, 5);
     const partial = await snapshot();
     assert.ok(partial.state.hatch.screws.Screw_TL.turns > 1.4 && partial.state.hatch.screws.Screw_TL.turns < 1.6);
     assert.ok(partial.visual.screws.find(s => s.id === 'Screw_TL').position[2] > before.visual.screws.find(s => s.id === 'Screw_TL').position[2]);
+    const held = (await targets()).screws.Screw_BR;
+    await page.mouse.move(held.x, held.y); await page.mouse.down(); await page.keyboard.down('q');
+    try { await page.waitForFunction(() => !document.querySelector('[data-screw="Screw_BR"] small').textContent.startsWith('0,0')); }
+    finally { await page.keyboard.up('q'); await page.mouse.up(); }
     for (const id of ids) { const t = await targets(); await circle(page, t.screws[id], false, 4.2, id); assert.equal(await screw(page, id).isDisabled(), true); }
     const after = await snapshot();
     assert.equal(after.camera.yaw, before.camera.yaw); assert.equal(after.camera.pitch, before.camera.pitch);
@@ -107,7 +118,8 @@ export async function runHatchChecks(page, artifacts, powerOff) {
   assert.equal(await page.locator('[data-step="open"] .error-marker').count(), 1);
   await page.locator('#lamp').click();
   await page.screenshot({ path: `${artifacts}/trappe-ouverte.png` });
-  for (let i = 0; i < 3; i++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await repairWiresByKeyboard(page);
+  for (let i = 0; i < 2; i++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '2');
   console.log(JSON.stringify({ hatch: 'passed', input: dev ? '3D circles, 3D pull and keyboard' : 'keyboard',

@@ -13,9 +13,15 @@ export const extraction = turns => Math.max(0, Math.min(1, turns / TURNS_REQUIRE
 export function circularDelta(previous, current) {
   return Math.atan2(Math.sin(current - previous), Math.cos(current - previous));
 }
-export function pointerAngle(x, y, center, deadZone = 9) {
+export function pointerAngle(x, y, center, deadZone = 3) {
   const dx = x - center.x; const dy = center.y - y;
   return Math.hypot(dx, dy) < deadZone ? null : Math.atan2(dy, dx);
+}
+export function keyTurnSlices(milliseconds) {
+  const radians = Math.max(0, Math.min(500, milliseconds)) * KEY_TURN_SPEED / 1000;
+  if (!radians) return [];
+  const count = Math.ceil(radians / (Math.PI / 2));
+  return Array(count).fill(radians / count);
 }
 export const hatchDragProgress = (initial, startX, x, travel) => Math.max(0, Math.min(1, initial + (startX - x) / Math.max(1, travel)));
 export function initialHatchState() {

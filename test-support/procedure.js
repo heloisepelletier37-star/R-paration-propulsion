@@ -31,3 +31,30 @@ export function openHatch(machine, advance) {
   machine.dispatch({ type: 'HATCH_DRAG_MOVE', gestureId, progress: 1 }); machine.dispatch({ type: 'HATCH_DRAG_END', gestureId });
   advance(HATCH_SETTLE_MS); machine.dispatch({ type: 'HATCH_OPENED', settleId: machine.state.hatch.settleId });
 }
+export function turnTerminal(machine, wireId, side) {
+  machine.dispatch({ type: 'WIRE_TERMINAL_START', wireId, side });
+  const g = machine.state.wires.gesture;
+  if (!g) return;
+  for (let i = 0; i < 4; i++) machine.dispatch({ type: 'WIRE_TERMINAL_MOVE', gestureId: g.id, radians: (g.action === 'loosen' ? 1 : -1) * TAU / 4 });
+}
+export function repairWires(machine) {
+  if (!machine.state.headlamp) machine.dispatch({ type: 'TOGGLE_LAMP' });
+  for (const wire of machine.state.wires.items) machine.dispatch({ type: 'WIRE_INSPECT', wireId: wire.id });
+  for (const wire of machine.state.wires.items.filter(item => item.broken && !item.repaired)) {
+    const wireId = wire.id;
+    machine.dispatch({ type: 'WIRE_INSPECT', wireId }); machine.dispatch({ type: 'WIRE_MARK', wireId });
+    machine.dispatch({ type: 'SELECT_TOOL', toolId: 'flat' });
+    for (const side of ['L', 'R']) turnTerminal(machine, wireId, side);
+    machine.dispatch({ type: 'WIRE_REMOVE_START', wireId }); let gestureId = machine.state.wires.gesture?.id;
+    machine.dispatch({ type: 'WIRE_REMOVE_MOVE', gestureId, progress: 1 }); machine.dispatch({ type: 'WIRE_REMOVE_END', gestureId });
+    machine.dispatch({ type: 'SELECT_TOOL', toolId: wire.color }); machine.dispatch({ type: 'WIRE_CHOOSE_REPLACEMENT', wireId });
+    machine.dispatch({ type: 'SELECT_TOOL', toolId: 'stripper' });
+    for (const side of ['L', 'R']) machine.dispatch({ type: 'WIRE_STRIP', wireId, side });
+    for (const side of ['L', 'R']) {
+      machine.dispatch({ type: 'WIRE_END_START', wireId, side }); gestureId = machine.state.wires.gesture?.id;
+      machine.dispatch({ type: 'WIRE_END_MOVE', gestureId, position: [0, 0, 0], distance: 0.01 }); machine.dispatch({ type: 'WIRE_END_END', gestureId });
+    }
+    machine.dispatch({ type: 'SELECT_TOOL', toolId: 'flat' });
+    for (const side of ['L', 'R']) turnTerminal(machine, wireId, side);
+  }
+}

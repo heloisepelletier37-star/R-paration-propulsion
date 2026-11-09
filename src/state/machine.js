@@ -1,6 +1,7 @@
 import { STEPS, TOOLS, canAct, currentStep, canUseBreaker, canOpenHatch } from './procedure.js';
 import { initialPowerState, COVER_DURATION_MS, SHOCK_DURATION_MS, clampProgress, passesThreshold, HATCH_TARGETS, isScrewdriver } from '../steps/step1-power.js';
 import { initialHatchState, ALL_SCREWS, SAFETY_SCREW, removed, removedCount, TAU, TURNS_REQUIRED, HATCH_SETTLE_MS } from '../steps/step2-hatch.js';
+import { initialWiringState, reduceWiring, cancelWiring } from '../steps/step3-wires.js';
 import { textes as t } from '../ui/textes.js';
 
 export const briefingCount = state => state.mode === 'evaluation' ? 1 : t.briefing.length;
@@ -15,7 +16,7 @@ function freeze(value) {
   return value;
 }
 
-function initialState(audio = false) {
+function initialState(audio = false, random = Math.random) {
   return {
     phase: 'loading', mode: null, repairLocked: true, hasBegun: false,
     stepIndex: 0, steps: STEPS.map(step => ({ id: step.id, completed: false,
@@ -23,7 +24,7 @@ function initialState(audio = false) {
     briefingIndex: 0, resume: null, sequence: 0, message: null, messageQueue: [],
     radioCollapsed: false, unread: false, selectedTool: null, headlamp: false, audio,
     errors: [], hintsUsed: 0, hintLog: [], validations: [],
-    power: initialPowerState(), hatch: initialHatchState(), shock: { id: 0, active: false, at: null, until: null, point: null },
+    power: initialPowerState(), hatch: initialHatchState(), wires: initialWiringState(random), shock: { id: 0, active: false, at: null, until: null, point: null },
     elapsedMs: 0, clockAt: null, lastActivityAt: 0, idlePrompted: false,
   };
 }
@@ -131,7 +132,7 @@ function finishStep(state, time, source) {
   }
 }
 
-function reduce(state, event, time) {
+function reduce(state, event, time, random) {
   // Clone only accepted transitions; an invalid event leaves the exact state intact.
   const next = () => { const value = structuredClone(state); advanceClock(value, time); return value; };
   switch (event.type) {
@@ -167,6 +168,7 @@ function reduce(state, event, time) {
       const s = next();
       cancelDrag(s);
       cancelHatch(s);
+      cancelWiring(s);
       s.resume = { phase: s.phase, message: s.message, queue: s.messageQueue };
       s.phase = 'briefing'; s.briefingIndex = 0; s.radioCollapsed = false; showBriefing(s); return s;
     }
@@ -179,13 +181,13 @@ function reduce(state, event, time) {
     }
     case 'SELECT_TOOL': {
       if (!canAct(state) || (event.toolId !== null && !TOOLS.some(tool => tool.id === event.toolId))) return state;
-      const s = next(); cancelHatch(s); s.selectedTool = s.selectedTool === event.toolId ? null : event.toolId;
+      const s = next(); cancelHatch(s); cancelWiring(s); s.selectedTool = event.toolId;
       if (s.stepIndex === 1 && s.selectedTool === 'phillips') s.steps[1].substeps.driver = true;
       activity(s, time); return s;
     }
     case 'TOGGLE_LAMP': {
       if (!canAct(state)) return state;
-      const s = next(); s.headlamp = !s.headlamp; activity(s, time); return s;
+      const s = next(); s.headlamp = !s.headlamp; if (!s.headlamp) cancelWiring(s); activity(s, time); return s;
     }
     case 'SET_AUDIO': {
       const enabled = Boolean(event.enabled);
@@ -248,7 +250,7 @@ function reduce(state, event, time) {
     }
     case 'TOUCH_HATCH': {
       if (!canAct(state) || !state.power.circuitOn || !isScrewdriver(state.selectedTool) || !HATCH_TARGETS.includes(event.nodeName)) return state;
-      const s = next(); cancelDrag(s); cancelHatch(s); s.hatch = initialHatchState(); s.stepIndex = 0;
+      const s = next(); cancelDrag(s); cancelHatch(s); cancelWiring(s); s.hatch = initialHatchState(); s.stepIndex = 0;
       for (const step of s.steps) {
         step.completed = false;
         Object.keys(step.substeps).forEach(id => { step.substeps[id] = false; });
@@ -352,14 +354,14 @@ function reduce(state, event, time) {
       finishStep(s, time, 'gesture'); return s;
     }
     case 'COMPLETE_SUBSTEP': {
-      if (!canAct(state) || ['power', 'open'].includes(event.stepId) || event.stepId !== currentStep(state).id
+      if (!canAct(state) || ['power', 'open', 'wires'].includes(event.stepId) || event.stepId !== currentStep(state).id
           || !currentStep(state).substeps.includes(event.substepId)
           || state.steps[state.stepIndex].substeps[event.substepId]) return state;
       const s = next(); s.steps[s.stepIndex].substeps[event.substepId] = true; activity(s, time); return s;
     }
     case 'VALIDATE_STEP':
     case 'DEBUG_VALIDATE_STEP': {
-      if (!canAct(state) || ['power', 'open'].includes(event.stepId) || event.stepId !== currentStep(state).id) return state;
+      if (!canAct(state) || ['power', 'open', 'wires'].includes(event.stepId) || event.stepId !== currentStep(state).id) return state;
       if (event.type === 'VALIDATE_STEP' && !Object.values(state.steps[state.stepIndex].substeps).every(Boolean)) return state;
       const s = next();
       if (event.type === 'DEBUG_VALIDATE_STEP') {
@@ -382,19 +384,19 @@ function reduce(state, event, time) {
     }
     case 'RESTART': {
       if (!['debrief', 'complete'].includes(state.phase)) return state;
-      const s = initialState(state.audio); s.phase = 'welcome'; return s;
+      const s = initialState(state.audio, random); s.phase = 'welcome'; return s;
     }
-    default: return state;
+    default: return reduceWiring(state, event, time, { next, activity, showMessages, message, finishStep });
   }
 }
 
-export function createMachine({ now = () => Date.now() } = {}) {
-  let state = freeze(initialState());
+export function createMachine({ now = () => Date.now(), random = Math.random } = {}) {
+  let state = freeze(initialState(false, random));
   const listeners = new Set();
   return {
     get state() { return state; },
     dispatch(event) {
-      const next = reduce(state, event, now());
+      const next = reduce(state, event, now(), random);
       if (next === state) return false;
       next.repairLocked = !canAct(next);
       state = freeze(next);

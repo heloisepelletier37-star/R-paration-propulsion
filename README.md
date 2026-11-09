@@ -1,6 +1,6 @@
 # Mars — Réparer la propulsion
 
-Une simulation pédagogique 3D en JavaScript, Vite et Three.js. Les deux premières étapes se réalisent dans la scène : mise hors tension, quatre vis à dévisser et trappe à tirer. Un contact sous tension, un mauvais tournevis ou une tentative sur la vis de sécurité ont des conséquences visibles et sont consignés. Les boutons de test permettent de parcourir les trois étapes suivantes, dont les gestes restent à développer.
+Une simulation pédagogique 3D en JavaScript, Vite et Three.js. Les trois premières étapes se réalisent dans la scène : mise hors tension, ouverture de la trappe, inspection et remplacement des fils. Les erreurs ont des conséquences visibles et sont consignées. Les boutons de test permettent de parcourir les deux dernières étapes, dont les gestes restent à développer.
 
 ## Lancer le projet
 
@@ -14,7 +14,7 @@ npm run dev
 Ouvre l’adresse affichée par Vite. La configuration utilise un chemin relatif (`base: './'`) pour s’adapter à l’emplacement de publication.
 
 ```sh
-npm test          # 51 tests : scène, progression, sécurité, dévissage, trappe et écriture
+npm test          # 75 tests : scène, progression, sécurité, gestes et faisceau
 npm run test:browser # Parcours fonctionnel dans Chromium ; lance son serveur Vite
 npm run build    # Produit le site statique dans dist/
 npm run preview  # Sert le build compilé, au même chemin
@@ -31,7 +31,7 @@ export npm_config_cache=/workspace/.environment/npm-cache
 - Sol ocre avec relief léger, cailloux, ciel rose-orangé, soleil rasant, ombres et poussière.
 - Vue fixe à la hauteur d’un astronaute agenouillé, avec légère respiration. La rotation et le zoom sont limités : la caméra ne tourne pas autour du vaisseau.
 - Trappe, quatre vis cruciformes, vis centrale de sécurité, boîtier électrique, capot, levier, LED verte, alarme rouge à 1 Hz, bornes et outils provisoires.
-- Lampe frontale et bip d’alarme facultatif. Le son ne démarre qu’après activation volontaire.
+- Lampe frontale indispensable pour inspecter le faisceau ; bip d’alarme facultatif. Le son ne démarre qu’après activation volontaire.
 - Interface française, navigation clavier et respect de la préférence « réduire les animations » pour la respiration et la poussière.
 - Accueil avec choix Entraînement / Évaluation et choix des signaux sonores.
 - Messages d’Inès uniquement textuels, écrits progressivement, dans une zone en bas à droite distincte de la vue 3D. Aucun portrait, avatar ou silhouette.
@@ -42,8 +42,11 @@ export npm_config_cache=/workspace/.environment/npm-cache
 - Quatre tours antihoraires par vis, rotation et recul en 3D, conservation des quatre vis et compteur dans le HUD.
 - Dérapage sonore, mouvement de l’outil et rayure avec le mauvais tournevis ; vis centrale protégée et tentatives consignées.
 - Ouverture de la trappe sur sa charnière jusqu’à 110°, avec inertie, uniquement après le retrait des quatre vis.
+- Six fils colorés, dont un ou deux sont sectionnés à chaque nouvelle partie : coupures, brins de cuivre, surbrillance au survol et gros plan au clic.
+- Diagnostic sous la lampe, déclaration des coupures, bornes desserrées puis resserrées d’un tour, retrait du fil et remplacement de la bonne couleur.
+- Isolant qui se rétracte à la pince, cuivre visible, fil neuf souple suivant le curseur et aimantation à moins de 2 cm de la borne correspondante.
 
-La caméra, la lampe, les outils et la validation sont verrouillés avant la fin du briefing. Les deux premières étapes ne peuvent pas être validées par debug. Les trois suivantes conservent leurs boutons de test.
+La caméra, la lampe, les outils et la validation sont verrouillés avant la fin du briefing. Les trois premières étapes ne peuvent pas être validées par debug. Les deux dernières conservent leurs boutons de test.
 
 ## Étape 1 — Mise hors tension
 
@@ -72,7 +75,26 @@ La trappe reste retenue tant qu’une des quatre vis n’est pas retirée. Un gl
 
 **Au clavier** : ouvrir « Commandes au clavier — trappe », sélectionner une vis et maintenir **Q**, y compris sur AZERTY (environ un tour par seconde). Relâcher pour faire une pause. Après les quatre vis, focaliser le curseur d’ouverture : **←** tire la trappe, **→** la repousse, **Fin** ouvre complètement et **Échap** annule le glissement. On peut aussi cliquer une vis dans la scène puis maintenir Q.
 
+Q reste actif lorsqu’on choisit l’outil après la vis ou que le clic reste maintenu. Les petits cercles sur la tête de vis sont acceptés. Sélectionner de nouveau le même outil le garde en main ; utiliser **Poser l’outil** ou **Échap** pour le déposer.
+
 En Évaluation, les effets physiques et le compteur restent visibles ; les explications et erreurs détaillées sont réservées au bilan. Les sons suivent le réglage Son. La préférence de réduction des animations supprime le mouvement décoratif de dérapage de l’outil.
+
+## Étape 3 — Inspection et remplacement
+
+Le tirage choisit un ou deux fils sectionnés distincts parmi les six fils rouges, noirs et jaunes. Il est renouvelé à chaque **Recommencer**. Il est possible de retrouver une même coupure lors de deux tirages indépendants.
+
+1. Allumer la lampe avec **L** et cliquer sur chacun des **six fils**. Sans lumière, le diagnostic reste indisponible et les gestes sont bloqués. Le survol souligne le fil ; le clic rapproche la caméra et affiche **Intact**, **Sectionné** ou **Réparé**. **Vue générale** ou **R** ramènent la vue initiale.
+2. Déclarer chaque fil sectionné avec un **clic droit**, **E** ou le bouton dédié. Déclarer un fil intact ajoute une erreur sans autoriser son retrait.
+3. Choisir le **tournevis plat**. Sur chacune des deux bornes du fil, maintenir le clic et faire **un tour antihoraire**, ou choisir la borne puis maintenir **Q**. Le tournevis cruciforme glisse et ajoute une erreur. Les vis de bornes tournent et reculent en 3D.
+4. Saisir le fil endommagé et le glisser **hors de la trappe**, puis relâcher. Les deux bornes doivent être complètement desserrées. Un glissement insuffisant ou annulé laisse le fil en place.
+5. Choisir un fil de rechange **de la même couleur** dans la ceinture, puis utiliser **Prendre le fil de rechange sélectionné** ou cliquer à l’emplacement du fil retiré. Une mauvaise couleur est refusée et consignée. Le fil neuf est déposé dans la zone de travail.
+6. Choisir la **pince à dénuder**, puis cliquer sur chacune des deux extrémités. L’isolant se rétracte et laisse voir le cuivre. Les deux bouts doivent être dénudés avant le raccordement.
+7. Saisir une extrémité et la glisser vers **sa borne correspondante**. À **moins de 2 cm** (seuil strict), elle est aimantée ; relâcher pour la raccorder. Un lâcher à 2 cm exactement ou plus loin ne raccorde pas le fil. Le fil neuf est une courbe `CatmullRomCurve3` / `TubeGeometry` qui suit le curseur avec un affaissement lié à la gravité martienne (0,38 g).
+8. Au tournevis plat, resserrer chaque borne d’**un tour horaire**. Q réalise le sens adapté à l’état de la borne. Après inspection des six fils et remplacement complet de tous les fils sectionnés, la checklist active automatiquement la fermeture de la trappe.
+
+Le panneau **Inspection et remplacement des fils** fournit tous les équivalents clavier : sélectionner le fil, déclarer, choisir une borne et maintenir Q ; focaliser le curseur de retrait puis utiliser **↓ / Fin** ; prendre le fil et dénuder avec les boutons. Après **Saisir l’extrémité**, les flèches la déplacent de 1 cm (**Maj** : 2 mm), **A / Viser la borne** l’approche de sa borne et **Entrée / Relâcher** valide le lâcher. L’aimantation et les mêmes contrôles d’ordre s’appliquent.
+
+**Échap**, le changement d’outil, l’extinction de la lampe, une perte de capture ou de fenêtre, et la relecture du briefing annulent le geste courant. Les inspections, déclarations, tours déjà effectués, extrémités déjà dénudées et raccordements validés restent acquis. La caméra reste stable pendant les gestes. En Évaluation, les effets et diagnostics physiques restent visibles ; les erreurs et leurs explications pédagogiques sont réservées au bilan.
 
 ## Accompagnement pédagogique
 
@@ -87,12 +109,12 @@ Le bouton `−` réduit l’encadré d’Inès. Un nouveau message laisse l’en
 ## Parcourir les étapes encore provisoires
 
 1. Choisir un mode et terminer son briefing.
-2. Réaliser la mise hors tension, retirer les quatre vis et tirer la trappe. En Entraînement, les indices et **Simuler une erreur** permettent aussi de tester les retours pédagogiques.
-3. Pour les étapes 3 à 5, cliquer sur **Valider l’étape (test)** : leurs sous-étapes sont cochées et seule l’étape suivante est débloquée.
+2. Réaliser la mise hors tension, ouvrir la trappe, inspecter les six fils et remplacer tous les fils sectionnés. En Entraînement, les indices et **Simuler une erreur** permettent aussi de tester les retours pédagogiques.
+3. Pour les étapes 4 et 5, cliquer sur **Valider l’étape (test)** : leurs sous-étapes sont cochées et seule l’étape suivante est débloquée.
 4. Après les cinq validations, parcourir le débriefing : réussites, erreurs avec règles à retenir, nombre d’indices et conclusion.
 5. Utiliser **Recommencer** pour revenir à l’accueil avec un nouveau journal.
 
-Les deux premières validations sont enregistrées comme des gestes ; les trois suivantes sont identifiées comme du debug. Le parcours ne produit pas encore de note sur la réparation complète. Les poses de la trappe et des voyants suivent la progression. La fermeture de test replace les quatre vis et remet le compteur à zéro ; le vrai geste de revissage viendra avec l’étape 4.
+Les trois premières validations sont enregistrées comme des gestes ; les deux suivantes sont identifiées comme du debug. Le parcours ne produit pas encore de note sur la réparation complète. Les poses de la trappe et des voyants suivent la progression. La fermeture de test replace les quatre vis et remet le compteur à zéro ; le vrai geste de revissage viendra avec l’étape 4.
 
 ## Commandes
 
@@ -113,8 +135,15 @@ Les deux premières validations sont enregistrées comme des gestes ; les trois 
 | Choisir une vis | Clic sur sa tête | Bouton de la vis dans Commandes au clavier — trappe |
 | Dévisser | Clic maintenu et cercles antihoraires | Sélectionner la vis puis maintenir `Q` |
 | Ouvrir la trappe | Tirer le bord droit vers la gauche | Focaliser le curseur de trappe, maintenir `←` puis relâcher ; `Fin` pour ouvrir complètement |
+| Inspecter un fil | Survol puis clic | Bouton du fil dans le panneau d’inspection |
+| Déclarer un fil sectionné | Clic droit | `E` ou bouton Déclarer sectionné |
+| Desserrer / resserrer une borne | Cercles antihoraires / horaires | Choisir la borne puis maintenir `Q` |
+| Retirer le fil endommagé | Glisser hors de la trappe | Curseur de retrait : `↓ / Fin`, puis relâcher |
+| Prendre le fil neuf | Couleur dans la ceinture, puis bouton Prendre | Même choix avec `Tab` et `Entrée` |
+| Dénuder une extrémité | Pince sélectionnée, clic sur le bout | Bouton Dénuder du côté choisi |
+| Raccorder une extrémité | Glisser à moins de 2 cm de sa borne, puis relâcher | Saisir, flèches ou `A`, puis `Entrée` |
 
-Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. La touche `E` pour marquer un fil sera activée lors de l’étape d’inspection.
+Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. Les outils se choisissent dans la ceinture en bas de l’écran.
 
 ## Organisation
 
@@ -130,6 +159,9 @@ Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. 
 - `src/steps/step1-power.js` : durée du capot, course, seuil strict et identifiants des cibles.
 - `src/steps/step2-hatch.js` : vis, tours, suivi angulaire, extraction et course de la trappe.
 - `src/interactions/hatch.js` : cercles à la souris, Q maintenu, glissement de la trappe et annulation des gestes.
+- `src/steps/step3-wires.js` : tirage, état des fils, ordre des opérations et raccordement strict sous 2 cm, pilotés par la machine à états.
+- `src/scene/wiring.js` : tubes souples, cuivre effiloché, dénudage, bornes mobiles et cibles d’aimantation, à partir des positions des nœuds GLB.
+- `src/interactions/wires.js` : inspection, déclaration, cercles, retrait et glissement des extrémités à la souris et au clavier.
 - `src/scene/electric-shock.js` : étincelles et secousse à durée limitée.
 - `public/models/`, `public/sounds/`, `public/hdri/`, `public/textures/` : futurs fichiers locaux.
 
@@ -141,6 +173,8 @@ La mise hors tension utilise `OPEN_POWER_COVER`, `POWER_COVER_READY`, `POWER_DRA
 
 L’ouverture utilise `SELECT_SCREW`, `SCREW_TURN_START`, `SCREW_TURN_MOVE` et `SCREW_TURN_END`. Les mouvements transmettent un angle signé borné par échantillon ; la machine conserve les tours, les rayures et le journal. `HATCH_DRAG_START`, `HATCH_DRAG_MOVE`, `HATCH_DRAG_END`, `HATCH_DRAG_CANCEL` et `HATCH_OPENED` contrôlent la course et la fin de l’animation. Aucun retrait ni mouvement de trappe n’est accepté avant la coupure du courant. Les changements d’outil et la relecture annulent les gestes actifs.
 
+L’inspection et le remplacement passent par les événements `WIRE_INSPECT`, `WIRE_MARK`, `WIRE_TERMINAL_*`, `WIRE_REMOVE_*`, `WIRE_CHOOSE_REPLACEMENT`, `WIRE_STRIP`, `WIRE_END_*`, `WIRE_CANCEL` et `WIRE_CLEAR_SELECTION`. Le réducteur de l’étape 3 est appelé uniquement par `state/machine.js`. Il vérifie l’étape, l’alimentation, la lumière, les outils, les identifiants de geste et tous les prérequis. Les positions et distances non finies sont refusées. Les raccordements sont validés au lâcher, pas à la simple proximité.
+
 Les gestes des étapes suivantes devront émettre des événements vers `createMachine()` :
 
 - `COMPLETE_SUBSTEP` avec `stepId` et `substepId` coche une sous-étape de l’étape courante.
@@ -148,7 +182,7 @@ Les gestes des étapes suivantes devront émettre des événements vers `createM
 - `RECORD_ERROR` avec `stepId` et `code` ajoute une erreur connue du catalogue de `src/ui/textes.js`.
 - `ACTIVITY` réarme le délai d’inactivité ; les sélections d’outils et les actions de l’interface le font déjà.
 
-Les validations d’une autre étape, les événements périmés et les actions pendant le briefing sont refusés par la machine, indépendamment de l’état des boutons. Les événements génériques de validation et de sous-étape ne peuvent pas contourner les gestes des étapes 1 et 2. Les snapshots sont immuables.
+Les validations d’une autre étape, les événements périmés et les actions pendant le briefing sont refusés par la machine, indépendamment de l’état des boutons. Les événements génériques de validation et de sous-étape ne peuvent pas contourner les gestes des étapes 1 à 3. Les snapshots sont immuables.
 
 ### Vérifications navigateur
 
@@ -160,9 +194,11 @@ CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
 
 Le parcours vérifie les deux modes et l’accompagnement, puis teste le boîtier, le seuil, les annulations, la coupure, le choc et l’ouverture. `scripts/hatch-checks.mjs` contrôle les cercles, le sens horaire, le mauvais outil, la vis centrale, le recul des vis, le compteur et le glissement sur la charnière. En développement, il pilote réellement la souris dans la scène à partir des projections des nœuds ; les positions de debug sont en lecture seule. Le build compilé est contrôlé au clavier. Les captures sont enregistrées sous `.artifacts/` (ignoré par Git).
 
+`scripts/wires-checks.mjs` contrôle le parcours complet d’inspection et de remplacement, les erreurs, le retrait dans la scène et l’aimantation des deux extrémités. Le contrôle ciblé se lance avec `npm run test:browser -- --wires`, ou `npm run test:browser -- http://127.0.0.1:4173/ --wires` sur le build compilé. `MARS_ARTIFACT_DIR` permet de choisir un autre dossier de captures.
+
 Pour contrôler seulement l’ouverture : `npm run test:browser -- --hatch`. Le même contrôle accepte l’adresse d’un build servi, par exemple `npm run test:browser -- http://127.0.0.1:4173/ --hatch`.
 
-Captures de référence : [accueil](docs/screenshots/accueil.png), [accompagnement](docs/screenshots/accompagnement.png), [petit écran](docs/screenshots/accompagnement-mobile.png), [mise hors tension](docs/screenshots/mise-hors-tension.png), [trappe ouverte](docs/screenshots/trappe-ouverte.png).
+Captures de référence : [accueil](docs/screenshots/accueil.png), [accompagnement](docs/screenshots/accompagnement.png), [petit écran](docs/screenshots/accompagnement-mobile.png), [mise hors tension](docs/screenshots/mise-hors-tension.png), [trappe ouverte](docs/screenshots/trappe-ouverte.png), [faisceau réparé](docs/screenshots/faisceau-repare.png).
 
 Pour tester le build compilé, lancer `npm run preview` dans un premier terminal, puis fournir son adresse au test depuis un second terminal :
 
@@ -218,6 +254,16 @@ Les fichiers présents dans `dist/` sont générés et ne doivent pas être comm
 - [ ] Le compteur atteint 4 / 4 avant de permettre l’ouverture de la trappe.
 - [ ] Tirer le bord droit vers la gauche fait pivoter la trappe jusqu’à 110°, puis active automatiquement l’étape 3.
 - [ ] Q maintenu et le curseur d’ouverture au clavier permettent les mêmes gestes, avec annulation par Échap.
-- [ ] Le debug ne peut pas valider les étapes 1 et 2 ; les gestes réels puis les trois validations de test conduisent au débriefing.
+- [ ] Choisir l’outil après la vis, maintenir le clic avec Q et faire de petits cercles sur la tête permettent de dévisser.
+- [ ] Chaque nouvelle partie contient un ou deux fils sectionnés parmi les six, avec cuivre visible aux coupures.
+- [ ] La lampe permet l’inspection et le gros plan ; sans elle, le diagnostic reste indisponible.
+- [ ] Les six fils sont inspectés, et déclarer un fil intact consigne une erreur.
+- [ ] Les deux bornes demandent chacune un tour au tournevis plat avant le retrait ; le mauvais tournevis glisse.
+- [ ] Le fil endommagé se retire hors de la trappe ; une mauvaise couleur de remplacement est refusée et consignée.
+- [ ] La pince rétracte l’isolant des deux extrémités et laisse apparaître le cuivre.
+- [ ] Chaque extrémité suit le curseur et s’aimante à moins de 2 cm de sa propre borne ; un lâcher trop loin ne raccorde rien.
+- [ ] Chaque borne est resserrée d’un tour horaire ; la dernière réparation complète active automatiquement l’étape 4.
+- [ ] Les commandes clavier réalisent tout le remplacement, avec annulation par Échap et reprise du travail conservé.
+- [ ] Le debug ne peut pas valider les étapes 1 à 3 ; les gestes réels puis les deux validations de test conduisent au débriefing.
 
 Les résultats d’une validation dans Chromium avec un GPU logiciel ne garantissent pas 60 images/s sur toutes les machines. Chrome, Firefox et Edge restent à vérifier sur les postes ciblés avant la livraison finale.

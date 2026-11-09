@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { openHatchByKeyboard } from './hatch-checks.mjs';
+import { repairWiresByKeyboard } from './wires-checks.mjs';
 
 export async function openPowerControls(page) {
   if (!await page.locator('#power-controls').evaluate(element => element.open)) await page.locator('#power-controls summary').click();
@@ -27,7 +28,8 @@ async function begin(page, mode) {
 }
 async function finishRemaining(page) {
   await openHatchByKeyboard(page);
-  for (let index = 0; index < 3; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await repairWiresByKeyboard(page);
+  for (let index = 0; index < 2; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
 }
 
