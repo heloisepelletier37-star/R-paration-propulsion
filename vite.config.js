@@ -14,7 +14,7 @@ const availableAssets = candidates.filter(path =>
 );
 
 export default defineConfig({
-  base: '/simulation-mars/',
+  base: './',
   define: {
     __AVAILABLE_ASSETS__: JSON.stringify(availableAssets),
   },
