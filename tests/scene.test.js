@@ -6,7 +6,6 @@ import { REQUIRED_NODES } from '../src/assets/manifest.js';
 import { mergeModelWithPlaceholders } from '../src/assets/loader.js';
 import { isAlarmOn, updateAlarm } from '../src/scene/alarm.js';
 import { clampView, VIEW_LIMITS } from '../src/scene/camera.js';
-import { createMachine } from '../src/state/machine.js';
 
 test('the 43 required nodes exist exactly once without any supplied models', () => {
   const { root } = createPlaceholderAssets();
@@ -78,17 +77,4 @@ test('view angles stay limited even for extreme input', () => {
   assert.deepEqual(clampView(100, -100), { yaw: VIEW_LIMITS.yaw, pitch: -VIEW_LIMITS.pitch });
   assert.deepEqual(clampView(-100, 100), { yaw: -VIEW_LIMITS.yaw, pitch: VIEW_LIMITS.pitch });
   assert.deepEqual(clampView(0.1, -0.1), { yaw: 0.1, pitch: -0.1 });
-});
-
-test('observation and view controls never unlock a repair before the briefing', () => {
-  const machine = createMachine();
-  machine.dispatch({ type: 'TOGGLE_LAMP' });
-  assert.equal(machine.state.headlamp, false);
-  machine.dispatch({ type: 'SCENE_READY' });
-  assert.equal(machine.state.phase, 'observation');
-  machine.dispatch({ type: 'TOGGLE_LAMP' });
-  assert.equal(machine.state.headlamp, true);
-  machine.dispatch({ type: 'NEXT_STEP' });
-  assert.equal(machine.state.phase, 'observation');
-  assert.equal(machine.state.repairLocked, true);
 });

@@ -7,6 +7,9 @@ import { createFirstPersonCamera } from './scene/camera.js';
 import { addSceneLabels } from './scene/labels.js';
 import { updateAlarm } from './scene/alarm.js';
 import { createAlarmAudio } from './audio/alarm.js';
+import { createHeldTool } from './scene/held-tool.js';
+import { createProcedureProjection } from './scene/procedure.js';
+import { canAct, sceneState } from './state/procedure.js';
 import { createMachine } from './state/machine.js';
 import { createHud } from './ui/hud.js';
 import { textes } from './ui/textes.js';
@@ -23,6 +26,7 @@ async function start() {
   renderer.shadowMap.type = THREE.PCFShadowMap;
   const scene = new THREE.Scene();
   const view = createFirstPersonCamera(hud.canvas);
+  view.setEnabled(false);
   scene.add(view.camera);
   const atmosphere = createMarsAtmosphere(scene, renderer);
   const ship = createShip();
@@ -49,38 +53,75 @@ async function start() {
   lamp.target.position.set(0, 0, -4);
   view.camera.add(lamp, lamp.target);
   const audio = createAlarmAudio(view.camera, alarm);
+  const heldTool = createHeldTool(view.camera, root);
+  const projection = createProcedureProjection(root, renderer);
+  let lastSoundMessage;
+  let audioRequest = 0;
+
+  function notifyMessage(state) {
+    if (state.phase === 'welcome') lastSoundMessage = undefined;
+    if (state.message && state.audio && state.message.id !== lastSoundMessage && audio.ping()) lastSoundMessage = state.message.id;
+  }
+
+  async function setAudio(enabled) {
+    const request = ++audioRequest;
+    hud.audioButton.disabled = true;
+    try {
+      const actual = await audio.setEnabled(enabled);
+      if (request !== audioRequest) return;
+      machine.dispatch({ type: 'SET_AUDIO', enabled: actual });
+      notifyMessage(machine.state);
+    } catch {
+      if (request === audioRequest) {
+        machine.dispatch({ type: 'SET_AUDIO', enabled: false });
+        hud.feedback(textes.controls.audioError);
+      }
+    } finally {
+      if (request === audioRequest) hud.audioButton.disabled = false;
+    }
+  }
+
+  hud.connect(event => {
+    if (event.type === 'START' && machine.state.phase === 'welcome') void setAudio(event.audio);
+    const changed = machine.dispatch(event);
+    if (changed && ['START', 'RESTART'].includes(event.type)) view.reset();
+    if (changed && event.type === 'SELECT_TOOL') {
+      const id = machine.state.selectedTool;
+      hud.feedback(id ? textes.tools.selected(textes.tools[id].detail) : textes.tools.none);
+    }
+  });
   machine.subscribe(state => {
     hud.render(state);
-    lamp.intensity = state.headlamp ? 7 : 0;
+    view.setEnabled(canAct(state));
+    lamp.intensity = state.headlamp && canAct(state) ? 7 : 0;
+    heldTool.update(state);
+    projection.update(state);
+    notifyMessage(state);
   });
 
   function toggleLamp() {
+    if (!canAct(machine.state)) return;
     machine.dispatch({ type: 'TOGGLE_LAMP' });
-    hud.feedback(`${textes.lamp} : ${machine.state.headlamp ? textes.on : textes.off}.`);
+    hud.feedback(`${textes.controls.lamp} : ${machine.state.headlamp ? textes.controls.on : textes.controls.off}.`);
   }
   function resetView() {
+    if (!canAct(machine.state)) return;
     view.reset();
-    hud.feedback(textes.resetFeedback);
+    machine.dispatch({ type: 'ACTIVITY' });
+    hud.feedback(textes.controls.resetFeedback);
   }
   hud.lampButton.addEventListener('click', toggleLamp);
   hud.resetButton.addEventListener('click', resetView);
-  hud.audioButton.addEventListener('click', async () => {
-    hud.audioButton.disabled = true;
-    try {
-      const enabled = await audio.toggle();
-      machine.dispatch({ type: 'SET_AUDIO', enabled });
-      hud.feedback(`${textes.audio} : ${enabled ? textes.on : textes.off}.`);
-    } catch {
-      hud.feedback(textes.audioError);
-    } finally {
-      hud.audioButton.disabled = false;
-    }
-  });
+  hud.audioButton.addEventListener('click', () => void setAudio(!machine.state.audio));
   window.addEventListener('keydown', event => {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const target = event.target instanceof Element ? event.target : document.body;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || !canAct(machine.state)
+        || target.closest('input, textarea, select')) return;
     if (event.code === 'KeyL') { event.preventDefault(); toggleLamp(); }
     if (event.code === 'KeyR') { event.preventDefault(); resetView(); }
   });
+  for (const type of ['pointerdown', 'keydown', 'wheel']) hud.canvas.addEventListener(type, () => machine.dispatch({ type: 'ACTIVITY' }), { passive: true });
+  setInterval(() => machine.dispatch({ type: 'TICK' }), 1000);
 
   const resize = () => {
     const { width, height } = hud.canvas.getBoundingClientRect();
@@ -103,13 +144,14 @@ async function start() {
     frameCount++;
     view.update(delta, elapsed);
     atmosphere.update(delta, elapsed, view.reducedMotion);
-    const alarmOn = updateAlarm(alarm, elapsed);
+    const physical = sceneState(machine.state);
+    const alarmOn = updateAlarm(alarm, elapsed, physical.alarmActive);
     alarmLight.intensity = alarmOn ? 0.35 : 0;
     if (alarmOn !== lastAlarm) {
       hud.app.dataset.alarm = alarmOn ? 'on' : 'off';
       lastAlarm = alarmOn;
     }
-    audio.update(elapsed);
+    audio.update(elapsed, physical.circuitOn, physical.alarmActive);
     renderer.render(scene, view.camera);
   });
   machine.dispatch({ type: 'SCENE_READY' });

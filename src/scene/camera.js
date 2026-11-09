@@ -55,12 +55,14 @@ export function createFirstPersonCamera(canvas) {
     updateProjection();
   }
 
-  canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
+  canvas.addEventListener('pointerdown', () => { if (controls.enabled) canvas.focus({ preventScroll: true }); });
   canvas.addEventListener('wheel', event => {
+    if (!controls.enabled) return;
     event.preventDefault();
     zoom(Math.sign(event.deltaY));
   }, { passive: false });
   canvas.addEventListener('keydown', event => {
+    if (!controls.enabled) return;
     const directions = {
       ArrowLeft: [-0.035, 0], ArrowRight: [0.035, 0],
       ArrowUp: [0, -0.025], ArrowDown: [0, 0.025],
@@ -84,6 +86,15 @@ export function createFirstPersonCamera(canvas) {
     camera,
     controls,
     reset,
+    setEnabled(enabled) {
+      if (controls.enabled === enabled) return;
+      controls.enabled = enabled;
+      if (!enabled) {
+        controls.enableDamping = false;
+        controls.update();
+        controls.enableDamping = true;
+      }
+    },
     get fov() { return lensFov; },
     get reducedMotion() { return motionQuery.matches; },
     update(delta, elapsed) {
