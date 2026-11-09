@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { resolveConfig } from 'vite';
+import { powerOffByKeyboard, runPowerChecks } from './power-checks.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const externalTarget = process.argv[2];
@@ -67,7 +68,7 @@ try {
   await page.waitForSelector('#app[data-phase="running"]');
   assert.equal(await page.locator('.checklist-step[aria-current="step"]').getAttribute('data-step'), 'power');
   assert.equal(await page.locator('.substeps li').count(), 2);
-  assert.equal(await page.locator('#debug-validate').isEnabled(), true);
+  assert.equal(await page.locator('#debug-validate').isDisabled(), true);
   await page.locator('[data-tool="phillips"]').click();
   assert.equal(await page.locator('[data-tool="phillips"]').getAttribute('aria-pressed'), 'true');
   await page.locator('#mars-view').focus(); await page.keyboard.press('2');
@@ -87,7 +88,7 @@ try {
   await page.locator('#debug-error').click();
   assert.equal(await page.locator('#radio').getAttribute('data-kind'), 'error');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
-  await page.locator('#debug-validate').click();
+  await powerOffByKeyboard(page);
   assert.equal(await page.locator('[data-step="power"]').getAttribute('data-status'), 'complete');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
   assert.equal(await page.locator('#radio').getAttribute('data-kind'), 'success');
@@ -144,10 +145,12 @@ try {
   assert.equal(await page.locator('.error-marker').count(), 0);
   assert.equal(await page.locator('#error-count').textContent(), 'Au bilan');
   assert.ok((await page.locator('#radio-text').textContent()).includes('Tu avances en autonomie.'));
-  for (let index = 0; index < 5; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await powerOffByKeyboard(page);
+  for (let index = 0; index < 4; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '1');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
+  await runPowerChecks(page, artifacts);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, training: '6-message lock, tools, hints, errors, replay, five stages, debrief', evaluation: '1-message lock, no help, hidden feedback until debrief', layout: 'desktop and mobile, no overlap', consoleErrors: errors, artifacts }, null, 2));
 } finally {

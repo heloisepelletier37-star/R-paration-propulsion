@@ -15,10 +15,11 @@ export const TOOLS = [
   { id: 'yellow', color: 0xe3b348, key: 'Digit6', icon: 'wire' },
   { id: 'lamp', model: 'Headlamp', key: 'Digit7', icon: 'lamp' },
 ];
-export const canAct = state => state.phase === 'running';
+export const canAct = state => state.phase === 'running' && !state.shock?.active;
 export const currentStep = state => STEPS[state.stepIndex];
+export const canUseBreaker = state => canAct(state) && state.stepIndex === 0 && state.power.circuitOn;
 export const sceneState = state => ({
-  circuitOn: !state.steps[0].completed || state.steps[4].completed,
+  circuitOn: state.power.circuitOn,
   hatchOpen: state.steps[1].completed && !state.steps[3].completed,
   alarmActive: !state.steps[4].completed,
 });

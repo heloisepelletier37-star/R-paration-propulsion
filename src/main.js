@@ -9,6 +9,8 @@ import { updateAlarm } from './scene/alarm.js';
 import { createAlarmAudio } from './audio/alarm.js';
 import { createHeldTool } from './scene/held-tool.js';
 import { createProcedureProjection } from './scene/procedure.js';
+import { createPowerInteractions } from './interactions/power.js';
+import { createElectricShock } from './scene/electric-shock.js';
 import { canAct, sceneState } from './state/procedure.js';
 import { createMachine } from './state/machine.js';
 import { createHud } from './ui/hud.js';
@@ -55,12 +57,18 @@ async function start() {
   const audio = createAlarmAudio(view.camera, alarm);
   const heldTool = createHeldTool(view.camera, root);
   const projection = createProcedureProjection(root, renderer);
+  const powerInteractions = createPowerInteractions({ canvas: hud.canvas, slider: hud.leverControl, root, camera: view.camera, machine, projection });
+  const electricShock = createElectricShock(scene, view, () => projection.targetPoint('Hatch'));
   let lastSoundMessage;
   let audioRequest = 0;
+  let lastElapsed = 0;
+  let lastCircuit;
+  let lastShock = 0;
+  let lastRelease = 0;
 
   function notifyMessage(state) {
     if (state.phase === 'welcome') lastSoundMessage = undefined;
-    if (state.message && state.audio && state.message.id !== lastSoundMessage && audio.ping()) lastSoundMessage = state.message.id;
+    if (state.message && state.audio && !state.shock.active && state.message.id !== lastSoundMessage && audio.ping()) lastSoundMessage = state.message.id;
   }
 
   async function setAudio(enabled) {
@@ -82,6 +90,7 @@ async function start() {
   }
 
   hud.connect(event => {
+    if (event.type === 'TOUCH_HATCH' && !event.point) event = { ...event, point: projection.targetPoint('Hatch').toArray() };
     if (event.type === 'START' && machine.state.phase === 'welcome') void setAudio(event.audio);
     const changed = machine.dispatch(event);
     if (changed && ['START', 'RESTART'].includes(event.type)) view.reset();
@@ -92,10 +101,23 @@ async function start() {
   });
   machine.subscribe(state => {
     hud.render(state);
-    view.setEnabled(canAct(state));
+    view.setEnabled(canAct(state) && !state.power.dragging);
     lamp.intensity = state.headlamp && canAct(state) ? 7 : 0;
     heldTool.update(state);
     projection.update(state);
+    powerInteractions.sync(state);
+    electricShock.update(state);
+    const pose = sceneState(state);
+    audio.update(lastElapsed, pose.circuitOn, pose.alarmActive);
+    if (lastCircuit !== undefined && lastCircuit !== pose.circuitOn) audio.effect('switch');
+    lastCircuit = pose.circuitOn;
+    if (state.phase === 'welcome') { lastShock = 0; lastRelease = 0; }
+    if (state.shock.id !== lastShock) { lastShock = state.shock.id; if (lastShock) audio.effect('shock'); }
+    if (state.power.releaseId !== lastRelease) {
+      lastRelease = state.power.releaseId;
+      const outcome = state.power.lastRelease;
+      hud.feedback(outcome === 'short' ? textes.powerControls.short : outcome === 'success' ? textes.powerControls.cut : textes.powerControls.cancelled);
+    }
     notifyMessage(state);
   });
 
@@ -135,13 +157,16 @@ async function start() {
   const startedAt = lastTime;
   let lastAlarm;
   let frameCount = 0;
-  let lastElapsed = 0;
   renderer.setAnimationLoop(now => {
     const delta = Math.min((now - lastTime) / 1000, 0.05);
     const elapsed = (now - startedAt) / 1000;
     lastTime = now;
     lastElapsed = elapsed;
     frameCount++;
+    const wallTime = Date.now();
+    powerInteractions.frame(wallTime);
+    projection.frame(wallTime);
+    electricShock.frame(wallTime);
     view.update(delta, elapsed);
     atmosphere.update(delta, elapsed, view.reducedMotion);
     const physical = sceneState(machine.state);
@@ -175,6 +200,10 @@ async function start() {
           triangles: renderer.info.render.triangles,
           pixelRatio: renderer.getPixelRatio(),
           animation: { frames: frameCount, elapsed: lastElapsed },
+          interactions: powerInteractions.targets(),
+          visual: projection.snapshot(),
+          audio: audio.snapshot(),
+          effect: electricShock.snapshot(),
         };
       },
     };

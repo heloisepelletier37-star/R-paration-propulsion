@@ -101,7 +101,7 @@ function powerAsset() {
   const lever = group('Breaker_Lever', power, [0, -0.13, 0.18]);
   box(lever, [0.045, 0.17, 0.045], [0, 0.07, 0.035], materials.silver);
   box(lever, [0.17, 0.07, 0.085], [0, 0.17, 0.055], materials.dark);
-  const cover = group('Breaker_Cover', power, [0, 0.19, 0.2]);
+  const cover = group('Breaker_Cover', power, [0, 0.19, 0.27]);
   box(cover, [0.37, 0.035, 0.07], [0, 0, 0], materials.red);
   for (const x of [-0.17, 0.17]) box(cover, [0.03, 0.43, 0.07], [x, -0.2, 0], materials.red);
   box(cover, [0.37, 0.035, 0.07], [0, -0.41, 0], materials.red);

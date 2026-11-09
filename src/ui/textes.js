@@ -20,7 +20,7 @@ export const textes = {
     evaluationDetail: 'Un briefing court et les cinq étapes à suivre en autonomie. Retrouve tes résultats au bilan final.',
     recommended: 'POUR APPRENDRE', independent: 'POUR TE TESTER',
     sound: 'Activer les signaux sonores discrets', start: 'Commencer la mission',
-    note: 'Les gestes seront ajoutés ensuite. Le bouton « Valider l’étape (test) » permet de parcourir les écrans.',
+    note: 'La mise hors tension se fait sur le boîtier. Les gestes suivants arrivent ensuite ; le bouton de test permet de parcourir la suite.',
   },
   modes: { training: 'Entraînement', evaluation: 'Évaluation' },
   checklist: {
@@ -46,14 +46,14 @@ export const textes = {
     'Règle n° 1 : on ne touche jamais un circuit sous tension. Coupe toujours le courant avant d’ouvrir.',
     'La trappe tient avec des vis cruciformes. Le tournevis plat sert aux bornes des fils. Ne retire pas la vis centrale : c’est une vis de sécurité.',
     'Il fait sombre dans la trappe : allume ta lampe frontale avec L. Repère chaque fil coupé, puis remplace-le par un fil de la même couleur.',
-    'Les gestes à retenir : glisser, tourner pour visser ou dévisser, et marquer avec un clic droit ou E. Les touches Q et E seront disponibles avec ces gestes. Pour l’instant, choisis tes outils et utilise le bouton de test pour parcourir les étapes.',
+    'Pour couper le courant, relève le capot rouge, puis glisse le levier vers le bas et relâche au-delà de 70 % de sa course. Les gestes suivants, tourner et marquer avec Q ou E, arrivent ensuite. Le bouton de test permet de parcourir ces étapes.',
   ],
   tutorial: { drag: 'Glisser', turn: 'Tourner', mark: 'Marquer', dragKey: 'Souris / flèches', turnKey: 'Q', markKey: 'Clic droit / E', title: 'Les gestes à venir' },
   steps: {
     power: {
       title: 'Mettre hors tension', substeps: { cover: 'Relever le capot rouge', breaker: 'Abaisser le levier' },
       intro: 'Commence par couper l’alimentation. La sécurité passe avant les outils.', success: 'L’alimentation est coupée. Tu peux maintenant accéder à la trappe.',
-      hints: ['Cherche le boîtier électrique, à gauche de la trappe.', 'Relève le capot rouge, puis abaisse le levier jusqu’au bout.', 'Regarde le mouvement : le capot se relève, puis le levier descend. La LED verte doit s’éteindre.'],
+      hints: ['Cherche le boîtier électrique, à gauche de la trappe.', 'Relève le capot rouge, puis glisse le levier vers le bas. Relâche après 70 % de sa course.', 'Regarde le mouvement : le capot se relève, puis le levier descend. Dépasse 70 % avant de relâcher. La LED verte doit s’éteindre.'],
       demo: 'Démonstration : relever le capot, puis abaisser le levier.',
     },
     open: {
@@ -82,7 +82,7 @@ export const textes = {
     },
   },
   errors: {
-    liveCircuit: { label: 'Contact sous tension', why: 'Le circuit est encore sous tension. Ouvrir maintenant exposerait à une décharge. Coupe le courant avant de toucher la trappe.', rule: 'Toujours couper l’alimentation avant d’ouvrir.' },
+    liveCircuit: { label: 'Contact sous tension', why: 'Choc électrique ! Coupe l’alimentation d’abord. Un circuit sous tension peut provoquer une décharge au contact du tournevis. Reprends la mise hors tension avant de toucher la trappe.', rule: 'Toujours couper l’alimentation avant d’ouvrir.' },
     wrongDriver: { label: 'Mauvais tournevis', why: 'Ce tournevis glisse : la tête de vis est cruciforme. Choisis le tournevis en croix pour ne pas l’abîmer.', rule: 'Adapter le tournevis à la tête de vis.' },
     wrongColor: { label: 'Mauvaise couleur de fil', why: 'La couleur aide à repérer la bonne connexion. Prends un fil de la même couleur que celui que tu remplaces.', rule: 'Remplacer chaque fil par un fil de la même couleur.' },
     looseScrew: { label: 'Vis insuffisamment serrée', why: 'Une vis n’est pas serrée à fond. Termine le serrage des quatre vis avant de remettre le circuit sous tension.', rule: 'Vérifier le serrage complet avant de rétablir le courant.' },
@@ -102,14 +102,24 @@ export const textes = {
   },
   metrics: { time: 'Temps', errors: 'Erreurs', hints: 'Indices', endOnly: 'Au bilan' },
   power: { on: 'Tension : ON', off: 'Tension : OFF', alarm: 'Défaut propulsion', restored: 'Alarme éteinte' },
-  debug: { title: 'Parcourir les étapes', badge: 'MODE DE TEST', note: 'Les gestes arrivent ensuite. Ces boutons servent à vérifier la progression et les retours d’Inès.', validate: 'Valider l’étape (test)', error: 'Simuler une erreur' },
+  powerControls: {
+    title: 'Commandes au clavier', pointer: 'Capot : clic. Levier : glisser vers le bas.', cover: 'Relever le capot rouge', opening: 'Ouverture du capot…', opened: 'Capot relevé',
+    lever: 'Levier du disjoncteur', keyboard: 'Maintiens ↓ pour abaisser, puis relâche. ↑ pour remonter. Fin pour la course complète ; Échap pour annuler.',
+    progress: value => `Course du levier : ${value} %`, threshold: '70 %',
+    short: 'Le levier revient. Dépasse 70 % de sa course avant de relâcher.',
+    cancelled: 'Geste annulé. Le courant reste allumé.',
+    cut: 'Alimentation coupée. La LED verte est éteinte. Le voyant rouge continue de clignoter sans bip.',
+    hatch: 'Toucher la trappe avec le tournevis', toolRequired: 'Choisis un tournevis pour toucher la trappe.',
+  },
+  shock: { title: 'Choc électrique ! Coupe l’alimentation d’abord.', caption: 'Décharge électrique : étincelle et retour à la mise hors tension.' },
+  debug: { title: 'Parcourir les étapes', badge: 'MODE DE TEST', note: 'Coupe réellement le courant pour valider la première étape. Les boutons de test servent aux étapes suivantes.', validate: 'Valider l’étape (test)', realPower: 'Cette étape se valide avec le capot et le levier.', error: 'Simuler une erreur' },
   debrief: {
-    title: 'Parcours de test terminé', note: 'Les étapes ont été validées avec le bouton de test. Les gestes ne sont pas encore évalués.', restart: 'Recommencer',
+    title: 'Parcours de test terminé', note: 'Tu as réalisé la mise hors tension. Les étapes suivantes ont été validées avec le bouton de test ; leurs gestes ne sont pas encore évalués.', restart: 'Recommencer',
     opening: (errors, hints) => `Tu as parcouru les cinq étapes dans le bon ordre. Ton journal contient ${errors} erreur${errors > 1 ? 's' : ''} et ${hints} indice${hints > 1 ? 's' : ''} consulté${hints > 1 ? 's' : ''}. Regardons ce que tu peux retenir.`,
     positives: titles => `Voici les étapes réussies sans erreur : ${titles.join(', ')}. Garde ces bons réflexes.`,
     allToReview: 'Chaque étape a laissé une trace dans ton journal. Nous allons reprendre les règles qui t’aideront pour la suite.',
     error: (label, count, rule) => `${label} (${count} fois). La règle à retenir : ${rule}`,
-    conclusion: 'La bonne habitude : couper, ouvrir, réparer, refermer, puis tester. Tu peux recommencer pour consolider cet ordre. Les gestes seront ajoutés à la prochaine étape du projet.',
+    conclusion: 'La bonne habitude : couper, ouvrir, réparer, refermer, puis tester. Tu peux recommencer pour consolider cet ordre. Les gestes des étapes suivantes seront ajoutés ensuite.',
   },
   labels: {
     panel: 'PROPULSION / 04',

@@ -64,6 +64,20 @@ h1, h2, p { margin-top: 0; }
 .scene-help small { display: block; color: #d0d5c8; font-size: 9px; margin-top: 5px; }
 .scene-lock { position: absolute; inset: 0; background: #10212b22; display: flex; justify-content: center; align-items: flex-end; padding: 0 12px 65px; }
 .scene-lock > span { background: #12272de8; border: 1px solid var(--line); padding: 11px 15px; border-radius: 4px; font-size: 12px; }
+.shock-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 4; }
+.is-shocked .shock-flash { animation: electrical-flash .23s ease-out both; }
+.shock-alert { position: absolute; top: 50px; left: 12px; right: 12px; z-index: 5; padding: 12px; border: 1px solid #ffd8a4; border-radius: 4px; background: #5e2e1df2; color: #fff0d1; font-size: 13px; line-height: 1.5; text-align: center; pointer-events: none; }
+.power-controls { border: 1px solid var(--line); border-radius: 4px; padding: 10px; flex-shrink: 0; background: #10252c; }
+.power-controls summary { cursor: pointer; font-size: 11px; color: #d5dece; }
+.power-controls button { display: block; width: 100%; margin-top: 12px; font-size: 11px; }
+.power-controls .small-note { font-size: 10px; margin: 8px 0 0; }
+.lever-input { display: flex; align-items: center; gap: 16px; margin: 17px 0 12px; }
+#power-lever { --lever-progress: 0; position: relative; width: 40px; min-width: 40px; height: 95px; border: 1px solid #a9bbac66; border-radius: 6px; background: #071c23; touch-action: none; cursor: ns-resize; }
+#power-lever:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#power-lever[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.lever-handle { position: absolute; left: 3px; width: 32px; height: 16px; border-radius: 3px; background: #e3c189; top: calc(3px + var(--lever-progress) * 71px); pointer-events: none; }
+.lever-threshold { position: absolute; top: 70%; left: -1px; right: -1px; border-top: 1px dashed #e5b970; color: #e5b970; font: 8px Consolas, monospace; padding: 2px 0 0 44px; white-space: nowrap; }
+#lever-value { font: 10px/1.7 Consolas, monospace; color: #cbd9ca; padding-left: 11px; }
 .comms-column { min-width: 0; min-height: 0; background: #14262d; padding: 23px 16px 15px; display: flex; flex-direction: column; gap: 22px; overflow: auto; scrollbar-width: thin; }
 .mission-context h1 { font-weight: 450; letter-spacing: -.025em; font-size: 27px; line-height: 1.1; margin-bottom: 12px; text-wrap: balance; }
 .mission-context .eyebrow { font-size: 8px; }
@@ -151,6 +165,7 @@ progress::-webkit-progress-value, progress::-moz-progress-bar { background: var(
 .gesture-turn { animation: turn 3s linear infinite; }
 .gesture-mark { animation: unread 1.3s ease-in-out infinite; }
 @keyframes orbit { to { transform: rotate(360deg); } }
+@keyframes electrical-flash { 0% { opacity: .9; } 38% { opacity: .35; } 100% { opacity: 0; } }
 @keyframes unread { 50% { box-shadow: 0 0 12px #e5c47a99; color: #ffe3a7; } }
 @keyframes checklist-pulse { 50% { background: #466450; box-shadow: 0 0 0 5px #e3c99244; } }
 @keyframes lever { to { transform: translateY(28px); } }

@@ -30,6 +30,7 @@ export function createFirstPersonCamera(canvas) {
   const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
   const spherical = new THREE.Spherical();
   let lensFov = 50;
+  let shake = 0;
 
   function updateProjection() {
     // Preserve a useful horizontal field of view on narrow screens, rather than
@@ -86,6 +87,7 @@ export function createFirstPersonCamera(canvas) {
     camera,
     controls,
     reset,
+    setShake(strength) { shake = THREE.MathUtils.clamp(strength, 0, 1); },
     setEnabled(enabled) {
       if (controls.enabled === enabled) return;
       controls.enabled = enabled;
@@ -102,6 +104,11 @@ export function createFirstPersonCamera(canvas) {
       camera.quaternion.copy(probe.quaternion);
       camera.position.copy(eyePosition);
       if (!motionQuery.matches) camera.position.y += Math.sin(elapsed * 1.35) * 0.004;
+      if (!motionQuery.matches && shake) {
+        camera.position.x += Math.sin(elapsed * 83) * 0.014 * shake;
+        camera.position.y += Math.cos(elapsed * 97) * 0.01 * shake;
+        camera.rotateZ(Math.sin(elapsed * 71) * 0.008 * shake);
+      }
     },
     resize(width, height) {
       camera.aspect = width / height;

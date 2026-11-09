@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import { createMachine, briefingCount, stepStatus } from '../src/state/machine.js';
 import { STEPS, TOOLS, canAct, sceneState } from '../src/state/procedure.js';
 import { textes as t } from '../src/ui/textes.js';
+const clocks = new WeakMap();
 
 function session(mode = 'training') {
   let time = 0;
   const machine = createMachine({ now: () => time });
   machine.dispatch({ type: 'SCENE_READY' });
   machine.dispatch({ type: 'START', mode, audio: false });
-  return { machine, advanceTime(ms) { time += ms; } };
+  const advanceTime = ms => { time += ms; };
+  clocks.set(machine, advanceTime);
+  return { machine, advanceTime };
 }
 function next(machine) {
   const id = machine.state.message?.id;
@@ -22,6 +25,15 @@ function start(mode = 'training') {
   return result;
 }
 function validate(machine) {
+  if (machine.state.stepIndex === 0 && machine.state.phase === 'running') {
+    machine.dispatch({ type: 'OPEN_POWER_COVER' });
+    clocks.get(machine)(400);
+    machine.dispatch({ type: 'POWER_COVER_READY', coverId: machine.state.power.coverId });
+    machine.dispatch({ type: 'POWER_DRAG_START' });
+    const dragId = machine.state.power.dragId;
+    machine.dispatch({ type: 'POWER_DRAG_MOVE', dragId, progress: 1 });
+    return machine.dispatch({ type: 'POWER_DRAG_END', dragId });
+  }
   return machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId: STEPS[machine.state.stepIndex].id });
 }
 
@@ -95,19 +107,20 @@ test('stages cannot be skipped, and a stale debug validation never validates the
   assert.equal(machine.state.phase, 'debrief');
   assert.equal(machine.state.repairLocked, true);
   assert.equal(machine.state.validations.length, 5);
-  assert.ok(machine.state.validations.every(item => item.source === 'debug'));
+  assert.deepEqual(machine.state.validations.map(item => item.source), ['gesture', 'debug', 'debug', 'debug', 'debug']);
 });
 
 test('normal validation requires every substep of the current stage', () => {
   const { machine } = start();
-  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'power' }), false);
-  assert.equal(machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'open', substepId: 'driver' }), false);
-  machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'power', substepId: 'cover' });
-  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'power' }), false);
-  machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'power', substepId: 'breaker' });
-  machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'power' });
-  assert.equal(machine.state.stepIndex, 1);
-  assert.equal(machine.state.validations[0].source, 'gesture');
+  validate(machine);
+  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'open' }), false);
+  assert.equal(machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'wires', substepId: 'inspect' }), false);
+  machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'open', substepId: 'driver' });
+  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'open' }), false);
+  for (const substepId of ['screws', 'hatch']) machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'open', substepId });
+  machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'open' });
+  assert.equal(machine.state.stepIndex, 2);
+  assert.equal(machine.state.validations[1].source, 'gesture');
 });
 
 test('replaying the briefing locks actions and preserves progress, errors, tools and active time', () => {
@@ -116,6 +129,7 @@ test('replaying the briefing locks actions and preserves progress, errors, tools
   machine.dispatch({ type: 'TOGGLE_LAMP' });
   machine.dispatch({ type: 'RECORD_ERROR', stepId: 'power', code: 'liveCircuit' });
   validate(machine);
+  const beforeReplay = machine.state.elapsedMs;
   advanceTime(5000); machine.dispatch({ type: 'REPLAY_BRIEFING' });
   assert.equal(machine.state.phase, 'briefing'); assert.equal(machine.state.repairLocked, true);
   assert.equal(machine.dispatch({ type: 'SELECT_TOOL', toolId: 'flat' }), false);
@@ -124,9 +138,9 @@ test('replaying the briefing locks actions and preserves progress, errors, tools
   while (machine.state.phase === 'briefing') next(machine);
   assert.equal(machine.state.stepIndex, 1); assert.equal(machine.state.steps[0].completed, true);
   assert.equal(machine.state.errors.length, 1); assert.equal(machine.state.selectedTool, 'phillips');
-  assert.equal(machine.state.headlamp, true); assert.equal(machine.state.elapsedMs, 5000);
+  assert.equal(machine.state.headlamp, true); assert.equal(machine.state.elapsedMs, beforeReplay + 5000);
   advanceTime(2000); machine.dispatch({ type: 'TICK' });
-  assert.equal(machine.state.elapsedMs, 7000);
+  assert.equal(machine.state.elapsedMs, beforeReplay + 7000);
 });
 
 test('hints progress through three levels, count every consultation, and reset per stage', () => {
