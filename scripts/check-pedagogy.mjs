@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { resolveConfig } from 'vite';
 import { powerOffByKeyboard, runPowerChecks } from './power-checks.mjs';
 import { openHatchByKeyboard, runHatchChecks } from './hatch-checks.mjs';
+import { repairWiresByKeyboard, runWireChecks } from './wires-checks.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const externalTarget = process.argv.slice(2).find(argument => !argument.startsWith('--'));
 const hatchOnly = process.argv.includes('--hatch');
+const wiresOnly = process.argv.includes('--wires');
 const { base } = await resolveConfig({ root }, 'serve');
 const target = externalTarget ?? new URL(base, 'http://127.0.0.1:5199/').href;
 const executablePath = process.env.CHROMIUM_PATH ?? ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser'].find(existsSync);
@@ -42,7 +44,9 @@ try {
   page.on('response', response => { if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`); });
   await page.goto(target);
   await page.waitForSelector('#app[data-ready="true"][data-phase="welcome"]');
-  if (hatchOnly) {
+  if (wiresOnly) {
+    await runWireChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard);
+  } else if (hatchOnly) {
     await runHatchChecks(page, artifacts, powerOffByKeyboard);
   } else {
   await page.screenshot({ path: `${artifacts}/accueil.png` });
@@ -123,7 +127,8 @@ try {
   });
   assert.equal(layout.overlaps, false); assert.equal(layout.checklistVisible, true); assert.equal(layout.overflow, false);
   await page.setViewportSize({ width: 1280, height: 900 });
-  for (let index = 0; index < 3; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await repairWiresByKeyboard(page);
+  for (let index = 0; index < 2; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('.checklist-step[data-status="complete"]').count(), 5);
   const transcript = [];
@@ -152,19 +157,25 @@ try {
   assert.ok((await page.locator('#radio-text').textContent()).includes('Tu avances en autonomie.'));
   await powerOffByKeyboard(page);
   await openHatchByKeyboard(page);
-  for (let index = 0; index < 3; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await repairWiresByKeyboard(page);
+  for (let index = 0; index < 2; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '1');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
   await runPowerChecks(page, artifacts);
   await runHatchChecks(page, artifacts, powerOffByKeyboard);
+  await runWireChecks(page, artifacts, powerOffByKeyboard, openHatchByKeyboard);
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify(hatchOnly ? { passed: true, scope: 'hatch gestures', consoleErrors: errors, artifacts }
+  console.log(JSON.stringify(hatchOnly || wiresOnly ? { passed: true, scope: wiresOnly ? 'wire replacement' : 'hatch gestures', consoleErrors: errors, artifacts }
     : { passed: true, training: '6-message lock, tools, hints, errors, replay, five stages, debrief', evaluation: '1-message lock, no help, hidden feedback until debrief', layout: 'desktop and mobile, no overlap', consoleErrors: errors, artifacts }, null, 2));
 } catch (error) {
   const page = browser?.contexts()[0]?.pages()[0];
-  if (page) await page.screenshot({ path: `${artifacts}/echec-parcours.png` }).catch(() => {});
+  if (page) {
+    await page.screenshot({ path: `${artifacts}/echec-parcours.png` }).catch(() => {});
+    const state = await page.evaluate(() => window.__MARS_DEBUG__?.snapshot() ?? ({ phase: document.querySelector('#app')?.dataset.phase, feedback: document.querySelector('#wire-feedback')?.textContent })).catch(() => null);
+    await writeFile(`${artifacts}/echec-etat.json`, JSON.stringify(state, null, 2));
+  }
   throw error;
 } finally {
   await browser?.close();

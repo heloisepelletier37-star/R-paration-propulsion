@@ -11,6 +11,8 @@ import { createHeldTool } from './scene/held-tool.js';
 import { createProcedureProjection } from './scene/procedure.js';
 import { createPowerInteractions } from './interactions/power.js';
 import { createHatchInteractions } from './interactions/hatch.js';
+import { createWireInteractions } from './interactions/wires.js';
+import { createWiringScene } from './scene/wiring.js';
 import { createElectricShock } from './scene/electric-shock.js';
 import { canAct, sceneState } from './state/procedure.js';
 import { createMachine } from './state/machine.js';
@@ -58,8 +60,11 @@ async function start() {
   const audio = createAlarmAudio(view.camera, alarm);
   const heldTool = createHeldTool(view.camera, root);
   const projection = createProcedureProjection(root, renderer);
+  const wiring = createWiringScene(scene, root, renderer);
   const powerInteractions = createPowerInteractions({ canvas: hud.canvas, slider: hud.leverControl, root, camera: view.camera, machine, projection });
   const hatchInteractions = createHatchInteractions({ canvas: hud.canvas, controls: hud.hatchControls, slider: hud.hatchSlider, guide: hud.screwGuide, root, camera: view.camera, machine, projection });
+  const wireInteractions = createWireInteractions({ canvas: hud.canvas, camera: view.camera, root, machine, wiring,
+    controls: hud.wireControls, removeSlider: hud.wireRemove, movePad: hud.wireMove, aimButton: hud.wireAim, releaseButton: hud.wireRelease, endButtons: hud.wireEnds });
   const electricShock = createElectricShock(scene, view, () => projection.targetPoint('Hatch'));
   let lastSoundMessage;
   let audioRequest = 0;
@@ -68,6 +73,7 @@ async function start() {
   let lastShock = 0;
   let lastRelease = 0;
   let lastHatchSound = 0;
+  let lastWireSound = 0;
 
   function notifyMessage(state) {
     if (state.phase === 'welcome') lastSoundMessage = undefined;
@@ -104,18 +110,23 @@ async function start() {
   });
   machine.subscribe(state => {
     hud.render(state);
-    view.setEnabled(canAct(state) && !state.power.dragging && !state.hatch.turning && !state.hatch.dragging);
+    const busy = state.power.dragging || state.hatch.turning || state.hatch.dragging || Boolean(state.wires.gesture);
+    const inspected = state.wires.items.find(w => w.id === state.wires.selected);
+    view.inspect(state.stepIndex === 2 && state.headlamp && inspected?.inspected ? wiring.midpoint(inspected.id) : null);
+    view.setBusy(busy); view.setEnabled(canAct(state) && !busy);
     lamp.intensity = state.headlamp && canAct(state) ? 7 : 0;
     heldTool.update(state);
     projection.update(state);
+    wiring.update(state);
     powerInteractions.sync(state);
     hatchInteractions.sync(state);
+    wireInteractions.sync(state);
     electricShock.update(state);
     const pose = sceneState(state);
     audio.update(lastElapsed, pose.circuitOn, pose.alarmActive);
     if (lastCircuit !== undefined && lastCircuit !== pose.circuitOn) audio.effect('switch');
     lastCircuit = pose.circuitOn;
-    if (state.phase === 'welcome') { lastShock = 0; lastRelease = 0; lastHatchSound = 0; }
+    if (state.phase === 'welcome') { lastShock = 0; lastRelease = 0; lastHatchSound = 0; lastWireSound = 0; }
     if (state.shock.id !== lastShock) { lastShock = state.shock.id; if (lastShock) audio.effect('shock'); }
     if (state.power.releaseId !== lastRelease) {
       lastRelease = state.power.releaseId;
@@ -126,6 +137,7 @@ async function start() {
       lastHatchSound = state.hatch.soundId;
       if (lastHatchSound) audio.effect(state.hatch.soundKind);
     }
+    if (state.wires.soundId !== lastWireSound) { lastWireSound = state.wires.soundId; if (lastWireSound) audio.effect(state.wires.soundKind); }
     notifyMessage(state);
   });
 
@@ -135,7 +147,8 @@ async function start() {
     hud.feedback(`${textes.controls.lamp} : ${machine.state.headlamp ? textes.controls.on : textes.controls.off}.`);
   }
   function resetView() {
-    if (!canAct(machine.state) || machine.state.power.dragging || machine.state.hatch.turning || machine.state.hatch.dragging) return;
+    if (!canAct(machine.state) || machine.state.power.dragging || machine.state.hatch.turning || machine.state.hatch.dragging || machine.state.wires.gesture) return;
+    if (machine.state.stepIndex === 2 && machine.state.wires.selected) machine.dispatch({ type: 'WIRE_CLEAR_SELECTION' });
     view.reset();
     machine.dispatch({ type: 'ACTIVITY' });
     hud.feedback(textes.controls.resetFeedback);
@@ -174,8 +187,12 @@ async function start() {
     const wallTime = Date.now();
     powerInteractions.frame(wallTime);
     hatchInteractions.frame(wallTime);
+    wireInteractions.frame(wallTime);
     projection.frame(wallTime);
+    wiring.frame(delta);
     heldTool.frame(wallTime, view.reducedMotion);
+    const busy = machine.state.power.dragging || machine.state.hatch.turning || machine.state.hatch.dragging || Boolean(machine.state.wires.gesture) || wireInteractions.busy;
+    view.setBusy(busy); view.setEnabled(canAct(machine.state) && !busy);
     electricShock.frame(wallTime);
     view.update(delta, elapsed);
     atmosphere.update(delta, elapsed, view.reducedMotion);
@@ -205,6 +222,7 @@ async function start() {
             pitch: view.controls.getPolarAngle() - Math.PI / 2,
             fov: view.fov,
             verticalFov: view.camera.fov,
+            inspectionReady: view.inspectionReady,
           },
           drawCalls: renderer.info.render.calls,
           triangles: renderer.info.render.triangles,
@@ -212,6 +230,8 @@ async function start() {
           animation: { frames: frameCount, elapsed: lastElapsed },
           interactions: powerInteractions.targets(),
           hatchTargets: hatchInteractions.targets(),
+          wireTargets: wireInteractions.targets(),
+          wiring: wiring.snapshot(),
           visual: projection.snapshot(),
           audio: audio.snapshot(),
           effect: electricShock.snapshot(),

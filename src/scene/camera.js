@@ -31,6 +31,13 @@ export function createFirstPersonCamera(canvas) {
   const spherical = new THREE.Spherical();
   let lensFov = 50;
   let shake = 0;
+  let inspection = null;
+  let busy = false;
+  let transitioning = false;
+  const targetEye = new THREE.Vector3();
+  const targetQuaternion = new THREE.Quaternion();
+  const matrix = new THREE.Matrix4();
+  const verticalFov = lens => THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(lens / 2)) / Math.min(camera.aspect, 1)));
 
   function updateProjection() {
     // Preserve a useful horizontal field of view on narrow screens, rather than
@@ -47,6 +54,7 @@ export function createFirstPersonCamera(canvas) {
   }
 
   function reset() {
+    inspection = null; transitioning = false;
     // Clear pending mouse inertia before restoring the saved forward view.
     controls.enableDamping = false;
     controls.update();
@@ -54,6 +62,7 @@ export function createFirstPersonCamera(canvas) {
     controls.enableDamping = true;
     lensFov = 50;
     updateProjection();
+    camera.position.copy(eyePosition); camera.quaternion.copy(probe.quaternion);
   }
 
   canvas.addEventListener('pointerdown', () => { if (controls.enabled) canvas.focus({ preventScroll: true }); });
@@ -88,7 +97,14 @@ export function createFirstPersonCamera(canvas) {
     controls,
     reset,
     setShake(strength) { shake = THREE.MathUtils.clamp(strength, 0, 1); },
+    setBusy(value) { busy = value; },
+    inspect(target) {
+      if ((!target && !inspection) || (target && inspection && target.distanceToSquared(inspection) < 1e-10)) return;
+      inspection = target?.clone() ?? null; transitioning = true;
+    },
+    get inspectionReady() { return Boolean(inspection && camera.position.distanceTo(inspection.clone().add(new THREE.Vector3(0.03, 0.06, 1.7))) < 0.005); },
     setEnabled(enabled) {
+      enabled = enabled && !inspection;
       if (controls.enabled === enabled) return;
       controls.enabled = enabled;
       if (!enabled) {
@@ -101,9 +117,16 @@ export function createFirstPersonCamera(canvas) {
     get reducedMotion() { return motionQuery.matches; },
     update(delta, elapsed) {
       controls.update(delta);
-      camera.quaternion.copy(probe.quaternion);
-      camera.position.copy(eyePosition);
-      if (!motionQuery.matches) camera.position.y += Math.sin(elapsed * 1.35) * 0.004;
+      if (!busy) {
+        targetEye.copy(inspection ? inspection.clone().add(new THREE.Vector3(0.03, 0.06, 1.7)) : eyePosition);
+        if (!inspection && !motionQuery.matches) targetEye.y += Math.sin(elapsed * 1.35) * 0.004;
+        targetQuaternion.copy(inspection ? new THREE.Quaternion().setFromRotationMatrix(matrix.lookAt(targetEye, inspection, camera.up)) : probe.quaternion);
+        const blend = transitioning || inspection ? motionQuery.matches ? 1 : 1 - Math.exp(-delta * 12) : 1;
+        camera.position.lerp(targetEye, blend); camera.quaternion.slerp(targetQuaternion, blend);
+        const targetFov = verticalFov(inspection ? 38 : lensFov);
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, blend); camera.updateProjectionMatrix();
+        if (!inspection && camera.position.distanceTo(targetEye) < 0.001) transitioning = false;
+      }
       if (!motionQuery.matches && shake) {
         camera.position.x += Math.sin(elapsed * 83) * 0.014 * shake;
         camera.position.y += Math.cos(elapsed * 97) * 0.01 * shake;

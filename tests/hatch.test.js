@@ -7,7 +7,7 @@ import { createPlaceholderAssets } from '../src/assets/placeholders.js';
 import { createProcedureProjection } from '../src/scene/procedure.js';
 import { SCREWS, ALL_SCREWS, SAFETY_SCREW, TAU, SCREW_TRAVEL, HATCH_SETTLE_MS, HATCH_ANGLE, removedCount, extraction, circularDelta, pointerAngle, hatchDragProgress } from '../src/steps/step2-hatch.js';
 import { textes } from '../src/ui/textes.js';
-import { session, cutPower, removeScrew, openHatch, finishBriefing } from '../test-support/procedure.js';
+import { session, cutPower, removeScrew, openHatch, finishBriefing, repairWires } from '../test-support/procedure.js';
 
 function ready(mode) {
   const s = session(mode); cutPower(s.machine, s.advance);
@@ -149,7 +149,8 @@ test('evaluation retains errors without corrective coaching, then explains them 
   machine.dispatch({ type: 'SCREW_TURN_START', screwId: SAFETY_SCREW });
   assert.equal(machine.state.message, null); assert.equal(machine.state.errors.length, 2);
   openHatch(machine, s.advance);
-  for (const stepId of ['wires', 'close', 'test']) machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId });
+  repairWires(machine);
+  for (const stepId of ['close', 'test']) machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId });
   const transcript = machine.state.messageQueue.map(m => m.text).join(' ');
   assert.ok(transcript.includes(textes.errors.safetyScrew.rule)); assert.ok(transcript.includes(textes.errors.wrongDriver.rule));
   machine.dispatch({ type: 'RESTART' });

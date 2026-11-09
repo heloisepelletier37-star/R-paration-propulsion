@@ -1,7 +1,8 @@
 import { textes as t } from './textes.js';
-import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker, canOpenHatch } from '../state/procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker, canOpenHatch, canRepairWires } from '../state/procedure.js';
 import { isScrewdriver } from '../steps/step1-power.js';
 import { ALL_SCREWS, removed, removedCount } from '../steps/step2-hatch.js';
+import { WIRE_DEFS, SIDES } from '../steps/step3-wires.js';
 import { briefingCount, stepStatus } from '../state/machine.js';
 import { icon } from './icons.js';
 import { demoMarkup } from './demos.js';
@@ -44,6 +45,7 @@ export function createHud() {
         <div class="scene-telemetry"><span id="power-status"></span><span id="screw-count"></span><span id="alarm-status"></span></div>
         <div id="screw-guide" class="screw-guide" aria-hidden="true" hidden><span id="screw-guide-value"></span></div>
         <p id="hatch-feedback" class="hatch-feedback" role="status" hidden></p>
+        <p id="wire-feedback" class="hatch-feedback" role="status" hidden></p>
         <div id="scene-lock" class="scene-lock"><span>${t.controls.locked}</span></div>
         <div class="scene-help"><span id="scene-instructions">${t.controls.look}</span><small>${t.controls.zoom}</small></div>
         <section id="summary" class="summary" aria-labelledby="summary-title" hidden>
@@ -66,6 +68,19 @@ export function createHud() {
           <p class="small-note">${t.hatchControls.keyboard}</p>
           <div id="hatch-pull" role="slider" aria-label="${t.hatchControls.pullLabel}" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="110" aria-valuenow="0" tabindex="-1"><span aria-hidden="true">←</span></div>
           <p id="hatch-angle" class="small-note"></p><p class="small-note">${t.hatchControls.pullKeyboard}</p>
+        </details>
+        <details id="wire-controls" class="power-controls" hidden><summary>${t.wireControls.title}</summary>
+          <div class="wire-choices" role="group" aria-label="${t.wireControls.choose}">${WIRE_DEFS.map(wire => `<button type="button" data-wire="${wire.id}" aria-pressed="false">${t.wireControls.wire(wire.index, t.wireControls.colors[wire.color])}<small></small></button>`).join('')}</div>
+          <p id="wire-summary" class="small-note"></p><p id="wire-diagnosis"></p>
+          <button id="wire-mark" type="button">${t.wireControls.mark}</button>
+          <div class="terminal-choices">${SIDES.map(side => `<button type="button" data-terminal="${side}" aria-pressed="false">${t.wireControls.terminal(t.wireControls.sides[side])}<small></small></button>`).join('')}</div>
+          <p class="small-note">${t.wireControls.terminalHelp}</p>
+          <div id="wire-remove" role="slider" aria-label="${t.wireControls.remove}" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="-1"><span aria-hidden="true">↓</span></div><p class="small-note">${t.wireControls.removeHelp}</p>
+          <button id="wire-take" type="button">${t.wireControls.take}</button>
+          <div class="wire-ends">${SIDES.map(side => `<button type="button" data-wire-end="${side}"></button>`).join('')}</div>
+          <p class="small-note">${t.wireControls.endHelp}</p>
+          <div id="wire-move" tabindex="-1" role="group" aria-label="${t.wireControls.moveLabel}" hidden><p id="wire-distance" role="status"></p><p class="small-note">${t.wireControls.moveHelp}</p><button id="wire-aim" type="button">${t.wireControls.aim}</button><button id="wire-release" type="button">${t.wireControls.release}</button></div>
+          <button id="wire-overview" type="button">${t.wireControls.overview}</button>
         </details>
         <section id="radio" class="radio" data-kind="instruction" aria-label="${t.radio.title}">
           <div class="radio-header"><span class="radio-signal" aria-hidden="true">≋</span><h2>${t.radio.title}</h2><button id="radio-toggle" type="button" aria-label="${t.radio.collapse}" aria-controls="radio-body" aria-expanded="true">−</button></div>
@@ -107,6 +122,9 @@ export function createHud() {
   let previousPhase;
   let powerReleaseId = 0;
   let hatchFeedbackId = 0;
+  let wireFeedbackId = 0;
+  let selectedWire;
+  let wireStage = false;
   const writer = createTypewriter($('#radio-text'), id => onAction({ type: 'TYPING_FINISHED', messageId: id }));
   const emit = event => onAction(event);
   const advance = () => {
@@ -132,6 +150,11 @@ export function createHud() {
     const button = event.target.closest('[data-screw]');
     if (button && !button.disabled) { emit({ type: 'SELECT_SCREW', screwId: button.dataset.screw }); $('#feedback').textContent = t.hatchControls.selected(t.hatchControls.names[button.dataset.screw]); }
   });
+  $('.wire-choices').addEventListener('click', event => { const button = event.target.closest('[data-wire]'); if (button && !button.disabled) emit({ type: 'WIRE_INSPECT', wireId: button.dataset.wire }); });
+  $('.terminal-choices').addEventListener('click', event => { const button = event.target.closest('[data-terminal]'); if (button && !button.disabled) emit({ type: 'WIRE_TERMINAL_SELECT', side: button.dataset.terminal }); });
+  $('#wire-mark').addEventListener('click', () => emit({ type: 'WIRE_MARK' }));
+  $('#wire-take').addEventListener('click', () => emit({ type: 'WIRE_CHOOSE_REPLACEMENT' }));
+  $('#wire-overview').addEventListener('click', () => emit({ type: 'WIRE_CLEAR_SELECTION' }));
   $('.toolbelt').addEventListener('click', event => {
     const button = event.target.closest('[data-tool]');
     if (button && !button.disabled) emit({ type: 'SELECT_TOOL', toolId: button.dataset.tool });
@@ -185,6 +208,7 @@ export function createHud() {
     canvas, app,
     leverControl: $('#power-lever'),
     hatchControls: $('#hatch-controls'), hatchSlider: $('#hatch-pull'), screwGuide: $('#screw-guide'),
+    wireControls: $('#wire-controls'), wireRemove: $('#wire-remove'), wireMove: $('#wire-move'), wireAim: $('#wire-aim'), wireRelease: $('#wire-release'), wireEnds: $('.wire-ends'),
     lampButton: $('#lamp'), audioButton: $('#audio'), resetButton: $('#reset'),
     connect(handler) { onAction = handler; },
     progress(value) { $('progress').value = value; },
@@ -209,7 +233,7 @@ export function createHud() {
       $('.scene-shell').classList.toggle('is-shocked', s.shock.active);
       app.dataset.shock = String(s.shock.id);
       $('#shock-alert').hidden = !s.shock.active;
-      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : active && s.stepIndex === 1 ? t.hatchControls.pointer : t.controls.look;
+      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : active && s.stepIndex === 1 ? t.hatchControls.pointer : active && s.stepIndex === 2 ? t.wireControls.pointer : t.controls.look;
       $('#mode-label').textContent = s.mode ? t.modes[s.mode] : t.welcome.choice;
       $('#procedure-progress').textContent = t.checklist.progress(s.steps.filter(step => step.completed).length, STEPS.length);
       $('#current-step').textContent = finished ? t.debrief.title : t.steps[currentStep(s).id].title;
@@ -223,9 +247,9 @@ export function createHud() {
       $('#lamp').setAttribute('aria-pressed', String(s.headlamp));
       $('#audio').setAttribute('aria-pressed', String(s.audio));
       for (const selector of ['#lamp', '#reset', '#debug-error']) $(selector).disabled = !active;
-      $('#reset').disabled = !active || s.power.dragging || s.hatch.turning || s.hatch.dragging;
-      $('#debug-validate').disabled = !active || s.stepIndex < 2;
-      $('#debug-validate').title = s.stepIndex === 0 ? t.debug.realPower : s.stepIndex === 1 ? t.debug.realHatch : t.debug.validate;
+      $('#reset').disabled = !active || s.power.dragging || s.hatch.turning || s.hatch.dragging || Boolean(s.wires.gesture);
+      $('#debug-validate').disabled = !active || s.stepIndex < 3;
+      $('#debug-validate').title = s.stepIndex === 0 ? t.debug.realPower : s.stepIndex === 1 ? t.debug.realHatch : s.stepIndex === 2 ? t.debug.realWires : t.debug.validate;
       $('#power-cover').disabled = !canUseBreaker(s) || s.power.cover !== 'closed';
       $('#power-cover').textContent = s.power.cover === 'closed' ? t.powerControls.cover : s.power.cover === 'opening' ? t.powerControls.opening : t.powerControls.opened;
       const leverEnabled = canUseBreaker(s) && s.power.cover === 'open';
@@ -268,6 +292,52 @@ export function createHud() {
         $('#hatch-feedback').textContent = feedback;
       }
       if (s.stepIndex !== 1) $('#hatch-controls').open = false;
+      const repair = canRepairWires(s); const w = s.wires.items.find(item => item.id === s.wires.selected);
+      $('#wire-controls').hidden = s.stepIndex !== 2 || finished;
+      if (s.stepIndex === 2 && !wireStage) $('#wire-controls').open = true;
+      wireStage = s.stepIndex === 2;
+      if (w && selectedWire !== w.id) $('#wire-controls').open = true;
+      selectedWire = w?.id;
+      if (s.stepIndex !== 2) $('#wire-controls').open = false;
+      for (const button of $('.wire-choices').querySelectorAll('[data-wire]')) {
+        const wire = s.wires.items.find(item => item.id === button.dataset.wire);
+        button.disabled = !repair; button.setAttribute('aria-pressed', String(wire.id === w?.id));
+        const diagnosis = !wire.inspected || !s.headlamp ? 'unknown' : wire.repaired ? 'repaired' : wire.broken ? 'broken' : 'intact';
+        button.dataset.diagnosis = diagnosis;
+        button.querySelector('small').textContent = t.wireControls.diagnosis[diagnosis] ?? t.wireControls.unknown;
+      }
+      $('#wire-summary').textContent = t.wireControls.summary(s.wires.items.filter(item => item.marked).length, s.wires.items.filter(item => item.repaired).length);
+      $('#wire-diagnosis').textContent = w?.inspected && s.headlamp ? t.wireControls.diagnosis[w.repaired ? 'repaired' : w.broken ? 'broken' : 'intact'] : s.headlamp ? t.wireControls.unknown : t.wireControls.dark;
+      $('#wire-mark').disabled = !repair || !s.headlamp || !w?.inspected || w.marked;
+      $('#wire-mark').textContent = w?.marked ? t.wireControls.marked : t.wireControls.mark;
+      for (const button of $('.terminal-choices').querySelectorAll('[data-terminal]')) {
+        const side = button.dataset.terminal;
+        button.disabled = !repair || !s.headlamp || !w?.marked || w.repaired;
+        button.setAttribute('aria-pressed', String(side === s.wires.terminal));
+        button.dataset.loosen = String(w?.terminals[side] ?? 0);
+        button.querySelector('small').textContent = t.wireControls.turns(w?.terminals[side] ?? 0);
+      }
+      const canRemove = repair && s.headlamp && w?.marked && !w.removed && SIDES.every(side => w.terminals[side] === 1);
+      $('#wire-remove').setAttribute('aria-disabled', String(!canRemove)); $('#wire-remove').tabIndex = canRemove ? 0 : -1;
+      $('#wire-remove').setAttribute('aria-valuenow', String(Math.round((s.wires.gesture?.kind === 'remove' ? s.wires.gesture.progress : 0) * 100)));
+      $('#wire-take').disabled = !repair || !s.headlamp || !w?.removed || Boolean(w.replacement);
+      for (const button of $('.wire-ends').querySelectorAll('[data-wire-end]')) {
+        const side = button.dataset.wireEnd; const r = w?.replacement;
+        button.disabled = !repair || !s.headlamp || !r || r.connected[side];
+        button.textContent = r?.connected[side] ? t.wireControls.connected(t.wireControls.sides[side]) : r?.stripped[side] ? t.wireControls.grab(t.wireControls.sides[side]) : t.wireControls.strip(t.wireControls.sides[side]);
+        button.dataset.stripped = String(r?.stripped[side] ?? false); button.dataset.connected = String(r?.connected[side] ?? false);
+      }
+      const movingEnd = s.wires.gesture?.kind === 'end';
+      $('#wire-move').hidden = !movingEnd;
+      $('#wire-distance').textContent = movingEnd ? s.wires.gesture.snapped ? t.wireControls.snapped : t.wireControls.distance(s.wires.gesture.distance ?? 0) : '';
+      $('#wire-overview').disabled = !repair || !w;
+      $('#wire-feedback').hidden = !repair || !s.wires.feedbackCode || (s.wires.feedbackCode === 'dark' && s.headlamp);
+      if (wireFeedbackId !== s.wires.feedbackId) {
+        wireFeedbackId = s.wires.feedbackId;
+        $('#wire-feedback').textContent = s.wires.feedbackCode === 'diagnosis' && w?.inspected && s.headlamp
+          ? t.wireControls.diagnosis[w.repaired ? 'repaired' : w.broken ? 'broken' : 'intact']
+          : (s.mode === 'evaluation' ? t.wireControls.physical[s.wires.feedbackCode] : null) ?? t.wireControls.feedback[s.wires.feedbackCode] ?? '';
+      }
       $('#put-down').disabled = !active || !s.selectedTool;
       $('#briefing').disabled = !['running', 'debrief', 'complete'].includes(s.phase);
       $('#help').hidden = s.mode !== 'training'; $('#help').disabled = !active;

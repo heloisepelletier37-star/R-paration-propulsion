@@ -89,6 +89,22 @@ h1, h2, p { margin-top: 0; }
 .screw-guide { position: absolute; width: 56px; height: 56px; border: 2px dashed #ffe1a0; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 0 0 1px #12272d99; }
 .screw-guide span { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); padding: 4px 6px; border-radius: 3px; background: #10232bee; color: #ffe1a0; font: 10px Consolas, monospace; white-space: nowrap; }
 .hatch-feedback { position: absolute; bottom: 65px; left: 12px; right: 12px; margin: 0; padding: 8px; background: #10232be8; color: #ffe0a7; text-align: center; font-size: 11px; line-height: 1.5; pointer-events: none; }
+.wire-choices, .terminal-choices, .wire-ends { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+.wire-choices button, .terminal-choices button, .wire-ends button { margin: 0; padding: 8px 5px; }
+.wire-choices small, .terminal-choices small { display: block; color: #cbd9ca; font-size: 10px; margin-top: 4px; }
+.wire-choices [data-diagnosis="broken"] small { color: #ffc78f; }
+.wire-choices [data-diagnosis="repaired"] small { color: #a1deb3; }
+#wire-diagnosis { font-size: 13px; color: #ffe1a0; margin: 10px 0; }
+#wire-remove { height: 80px; width: 45px; margin: 14px auto 0; border: 1px solid #a9bbac66; background: #071c23; border-radius: 4px; display: grid; place-items: center; touch-action: none; cursor: ns-resize; }
+#wire-remove[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+#wire-remove:focus-visible, #wire-move:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#wire-move { margin-top: 12px; padding: 9px; border: 1px solid #9bc9a777; border-radius: 4px; }
+#wire-distance { font-size: 11px; color: #b2e0be; line-height: 1.6; }
+#wire-controls { flex: 1 1 auto; min-height: 44px; max-height: 42vh; overflow: auto; scrollbar-width: thin; }
+#wire-controls:not([open]) { flex: 0 0 auto; }
+#wire-controls summary { position: sticky; top: -10px; z-index: 1; background: #10252c; padding: 6px 0; }
+.comms-column:has(#wire-controls[open]) { gap: 12px; }
+.comms-column:has(#wire-controls[open]) .mission-context h1 { font-size: 20px; margin-bottom: 8px; }
 .comms-column { min-width: 0; min-height: 0; background: #14262d; padding: 23px 16px 15px; display: flex; flex-direction: column; gap: 22px; overflow: auto; scrollbar-width: thin; }
 .mission-context h1 { font-weight: 450; letter-spacing: -.025em; font-size: 27px; line-height: 1.1; margin-bottom: 12px; text-wrap: balance; }
 .mission-context .eyebrow { font-size: 8px; }
