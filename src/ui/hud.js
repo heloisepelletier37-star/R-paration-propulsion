@@ -1,74 +1,243 @@
 import { textes as t } from './textes.js';
+import { STEPS, TOOLS, canAct, currentStep, sceneState } from '../state/procedure.js';
+import { briefingCount, stepStatus } from '../state/machine.js';
+import { icon } from './icons.js';
+import { demoMarkup } from './demos.js';
+import { createTypewriter } from './typewriter.js';
 
-const icons = {
-  lamp: '<path d="M9 7h5l4 3v4l-4 3H9zM5 9v6M21 8l2-2m-2 12 2 2M21 12h3"/>',
-  audio: '<path d="M3 9h4l5-4v14l-5-4H3zM16 8c3 2 3 6 0 8m3-11c5 4 5 10 0 14"/>',
-  reset: '<path d="M4 11a8 8 0 1 1 2 7M4 4v7h7"/>',
-};
-const icon = name => `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
+export function formatTime(milliseconds) {
+  const seconds = Math.floor(milliseconds / 1000);
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 export function createHud() {
   const app = document.querySelector('#app');
   app.innerHTML = `
     <a class="skip-link" href="#mars-view">${t.skip}</a>
-    <canvas id="mars-view" tabindex="0" role="img" aria-label="${t.sceneLabel}"></canvas>
-    <div class="visor" aria-hidden="true"></div>
-    <header class="topbar">
+    <header id="mission-header" class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">△</span><div><strong>${t.brand}</strong><span>${t.brandSub}</span></div></div>
       <div class="location"><span class="location-dot"></span>${t.location}</div>
-      <div class="connection"><i aria-hidden="true"></i>${t.radioStatus}</div>
+      <div class="header-actions">
+        <button id="briefing" type="button">${icon('book')}<span>${t.radio.replay}</span></button>
+        <button id="help" type="button">${icon('help')}<span>${t.radio.help}</span></button>
+        <button id="audio" type="button" aria-label="${t.controls.audioLabel}" aria-pressed="false">${icon('audio')}<span>${t.controls.audio}</span></button>
+      </div>
     </header>
-    <main class="hud" aria-labelledby="mission-title">
-      <section class="mission-copy">
-        <p class="eyebrow">${t.mission}</p>
-        <h1 id="mission-title">${t.title}</h1>
-        <p class="subtitle">${t.subtitle}</p>
-      </section>
-      <aside class="radio" aria-label="${t.radioName} — ${t.radioRole}">
-        <div class="radio-header"><div><strong>${t.radioName}</strong><small>${t.radioRole}</small></div><span class="radio-wave" aria-label="${t.live}"><i></i><i></i><i></i><i></i><i></i></span></div>
-        <p>${t.radioMessage}</p>
+    <main id="mission-layout" class="mission-layout">
+      <aside class="checklist-panel" aria-labelledby="checklist-title">
+        <p id="mode-label" class="eyebrow"></p>
+        <h2 id="checklist-title">${t.checklist.title}</h2>
+        <p id="procedure-progress" class="small-note"></p>
+        <ol id="checklist" class="checklist"></ol>
+        <section class="debug-panel" aria-label="${t.debug.title}">
+          <span class="eyebrow">${t.debug.badge}</span><p>${t.debug.note}</p>
+          <button id="debug-validate" type="button">${t.debug.validate}</button>
+          <button id="debug-error" class="quiet-button" type="button">${t.debug.error}</button>
+        </section>
       </aside>
-      <section class="observation-card">
-        <p class="eyebrow"><span class="phase-line"></span>${t.phase}</p>
-        <h2>${t.objectiveTitle}</h2>
-        <ol>${t.objectives.map((text, index) => `<li><span>0${index + 1}</span>${text}</li>`).join('')}</ol>
-        <p class="observation-note">${t.observation}</p>
+      <section class="scene-shell" aria-label="${t.title}">
+        <canvas id="mars-view" tabindex="0" role="img" aria-label="${t.sceneLabel}"></canvas>
+        <div class="visor" aria-hidden="true"></div>
+        <div class="scene-telemetry"><span id="power-status"></span><span id="alarm-status"></span></div>
+        <div id="scene-lock" class="scene-lock"><span>${t.controls.locked}</span></div>
+        <div class="scene-help"><span>${t.controls.look}</span><small>${t.controls.zoom}</small></div>
+        <section id="summary" class="summary" aria-labelledby="summary-title" hidden>
+          <span class="eyebrow">${t.debug.badge}</span><h2 id="summary-title">${t.debrief.title}</h2><p>${t.debrief.note}</p>
+          <button id="restart" class="primary-button" type="button">${t.debrief.restart}</button>
+        </section>
       </section>
-      <div class="status-strip">
-        <span><i class="status-dot power"></i>${t.power}</span>
-        <span class="alarm-status" aria-label="${t.alarmCaption}"><i class="status-dot alarm"></i>${t.alarm}</span>
-      </div>
+      <aside class="comms-column">
+        <div class="mission-context"><span class="eyebrow">${t.mission}</span><h1>${t.title}</h1><p id="current-step"></p>
+          <dl class="metrics"><div><dt>${t.metrics.time}</dt><dd id="elapsed">00:00</dd></div><div><dt>${t.metrics.errors}</dt><dd id="error-count">0</dd></div><div><dt>${t.metrics.hints}</dt><dd id="hint-count">0</dd></div></dl>
+        </div>
+        <section id="radio" class="radio" data-kind="instruction" aria-label="${t.radio.title}">
+          <div class="radio-header"><span class="radio-signal" aria-hidden="true">≋</span><h2>${t.radio.title}</h2><button id="radio-toggle" type="button" aria-label="${t.radio.collapse}" aria-controls="radio-body" aria-expanded="true">−</button></div>
+          <span id="radio-unread" class="unread-badge" hidden>${t.radio.unread}</span>
+          <div id="radio-body"><p id="radio-category" class="eyebrow"></p><p id="radio-text" aria-hidden="true"></p><div id="radio-demo"></div>
+            <button id="radio-next" class="primary-button" type="button">${t.radio.next}</button><small class="keyboard-note">${t.radio.keyboard}</small>
+          </div>
+        </section>
+      </aside>
     </main>
-    <footer class="bottom-bar">
-      <div class="view-help"><span class="drag-symbol" aria-hidden="true">↔</span><div><strong>${t.look}</strong><span>${t.keyboard}</span><small>${t.zoom}</small></div></div>
-      <div class="actions">
-        <button id="lamp" type="button" aria-label="${t.lampLabel}" aria-pressed="false">${icon('lamp')}<span>${t.lamp}</span><kbd>L</kbd></button>
-        <button id="audio" type="button" aria-label="${t.audioLabel}" aria-pressed="false">${icon('audio')}<span>${t.audio}</span><span class="toggle-light" aria-hidden="true"></span></button>
-        <button id="reset" type="button" aria-label="${t.resetLabel}">${icon('reset')}<span>${t.reset}</span><kbd>R</kbd></button>
+    <footer id="mission-footer" class="bottom-bar">
+      <div class="belt-heading"><h2>${t.tools.title}</h2><span id="selected-tool">${t.tools.none}</span><button id="put-down" class="quiet-button" type="button">${t.tools.putDown}</button></div>
+      <div class="toolbelt" role="toolbar" aria-label="${t.tools.title}">
+        ${TOOLS.map((tool, index) => `<button type="button" class="tool" data-tool="${tool.id}" aria-label="${t.tools[tool.id].detail}" aria-pressed="false" title="${t.tools[tool.id].detail}"><kbd>${index + 1}</kbd>${icon(tool.icon)}<span>${t.tools[tool.id].label}</span></button>`).join('')}
       </div>
+      <div class="view-actions"><button id="lamp" type="button" aria-label="${t.controls.lampLabel}" aria-pressed="false">${icon('lamp')}<kbd>L</kbd></button><button id="reset" type="button" aria-label="${t.controls.resetLabel}">${icon('reset')}<kbd>R</kbd></button></div>
     </footer>
+    <div id="welcome" class="welcome-screen" role="dialog" aria-modal="true" aria-labelledby="welcome-title" hidden>
+      <form id="welcome-form" class="welcome-card">
+        <p class="eyebrow">${t.welcome.eyebrow}</p><h1 id="welcome-title">${t.title}</h1><p class="welcome-intro">${t.welcome.introduction}</p>
+        <fieldset><legend>${t.welcome.choice}</legend>
+          <label class="mode-card"><input type="radio" name="mode" value="training" checked><span><small>${t.welcome.recommended}</small><strong>${t.welcome.training}</strong><span>${t.welcome.trainingDetail}</span></span></label>
+          <label class="mode-card"><input type="radio" name="mode" value="evaluation"><span><small>${t.welcome.independent}</small><strong>${t.welcome.evaluation}</strong><span>${t.welcome.evaluationDetail}</span></span></label>
+        </fieldset>
+        <label class="sound-choice"><input id="welcome-sound" type="checkbox" checked>${t.welcome.sound}</label>
+        <button class="primary-button start-button" type="submit">${t.welcome.start}${icon('arrow')}</button><p class="small-note">${t.welcome.note}</p>
+      </form>
+    </div>
+    <p id="radio-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <p id="feedback" class="sr-only" role="status" aria-live="polite"></p>
     <div id="loading" class="loading" role="status"><span class="loading-orbit" aria-hidden="true"></span><strong>${t.loading}</strong><span>${t.loadingDetail}</span><progress max="1" value="0" aria-label="${t.loading}"></progress></div>
   `;
   const canvas = document.querySelector('#mars-view');
+  const $ = selector => app.querySelector(selector);
+  let onAction = () => {};
+  let state;
+  let checklistSignature;
+  let messageId;
+  let previousPhase;
+  const writer = createTypewriter($('#radio-text'), id => onAction({ type: 'TYPING_FINISHED', messageId: id }));
+  const emit = event => onAction(event);
+  const advance = () => {
+    if (state?.radioCollapsed) return emit({ type: 'TOGGLE_RADIO' });
+    if (state?.message) emit({ type: 'MESSAGE_NEXT', messageId: state.message.id });
+  };
+  $('#welcome-form').addEventListener('submit', event => {
+    event.preventDefault(); emit({ type: 'START', mode: new FormData(event.currentTarget).get('mode'), audio: $('#welcome-sound').checked });
+  });
+  $('#radio-next').addEventListener('click', advance);
+  $('#radio-toggle').addEventListener('click', () => emit({ type: 'TOGGLE_RADIO' }));
+  $('#briefing').addEventListener('click', () => emit({ type: 'REPLAY_BRIEFING' }));
+  $('#help').addEventListener('click', () => emit({ type: 'REQUEST_HINT' }));
+  $('#debug-validate').addEventListener('click', event => {
+    if (event.detail < 2) emit({ type: 'DEBUG_VALIDATE_STEP', stepId: currentStep(state).id });
+  });
+  $('#debug-error').addEventListener('click', () => emit({ type: 'RECORD_ERROR', stepId: currentStep(state).id, code: currentStep(state).error, source: 'debug' }));
+  $('#restart').addEventListener('click', () => emit({ type: 'RESTART' }));
+  $('#put-down').addEventListener('click', () => emit({ type: 'SELECT_TOOL', toolId: null }));
+  $('.toolbelt').addEventListener('click', event => {
+    const button = event.target.closest('[data-tool]');
+    if (button && !button.disabled) emit({ type: 'SELECT_TOOL', toolId: button.dataset.tool });
+  });
+  $('.toolbelt').addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || !canAct(state)) return;
+    const buttons = [...$('.toolbelt').querySelectorAll('button')];
+    const index = buttons.indexOf(document.activeElement);
+    event.preventDefault(); buttons[(index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length].focus();
+  });
+  window.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || !state) return;
+    const target = event.target instanceof Element ? event.target : document.body;
+    if (state.phase === 'welcome' && event.key === 'Tab') {
+      const controls = [...$('#welcome').querySelectorAll('input, button')]
+        .filter(control => !control.disabled && (control.type !== 'radio' || control.checked));
+      const first = controls[0]; const last = controls.at(-1);
+      if (event.shiftKey && (target === first || !$('#welcome').contains(target))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (target === last || !$('#welcome').contains(target))) {
+        event.preventDefault(); first.focus();
+      }
+      return;
+    }
+    const nativeControl = target.closest('button, input, select, textarea, a');
+    if (event.code === 'Space' && !nativeControl && state.message) { event.preventDefault(); advance(); return; }
+    if (!canAct(state) || target.closest('input, select, textarea')) return;
+    const tool = TOOLS.find(item => item.key === event.code);
+    if (tool) { event.preventDefault(); emit({ type: 'SELECT_TOOL', toolId: tool.id }); }
+    if (event.code === 'Escape') emit({ type: 'SELECT_TOOL', toolId: null });
+  });
+
+  function renderChecklist(s) {
+    const signature = JSON.stringify([s.steps, s.mode, s.stepIndex, s.hasBegun, s.phase, s.briefingIndex]);
+    if (signature === checklistSignature) return;
+    checklistSignature = signature;
+    const detailed = s.mode === 'training';
+    const showErrors = detailed || ['debrief', 'complete'].includes(s.phase);
+    $('#checklist').classList.toggle('is-presented', s.phase === 'briefing' && s.briefingIndex === 1);
+    $('#checklist').innerHTML = STEPS.map((step, index) => {
+      const result = s.steps[index]; const status = stepStatus(s, index);
+      const hasError = showErrors && result.errors.length;
+      return `<li class="checklist-step" data-step="${step.id}" data-status="${status}" ${status === 'current' ? 'aria-current="step"' : ''}>
+        <div class="step-heading" aria-label="${t.steps[step.id].title} : ${t.checklist[status]}"><span class="step-number" aria-hidden="true">${status === 'complete' ? '✓' : String(index + 1).padStart(2, '0')}</span><span class="step-title">${t.steps[step.id].title}${detailed ? `<small>${t.checklist[status]}</small>` : ''}</span>${hasError ? `<span class="error-marker" role="img" aria-label="${t.checklist.error(result.errors.length)}">⚠</span>` : ''}</div>
+        ${detailed && status === 'current' ? `<ul class="substeps">${step.substeps.map(id => `<li data-done="${result.substeps[id]}" aria-label="${t.steps[step.id].substeps[id]} : ${result.substeps[id] ? t.checklist.substepDone : t.checklist.todo}"><span aria-hidden="true">${result.substeps[id] ? '✓' : '○'}</span>${t.steps[step.id].substeps[id]}</li>`).join('')}</ul>` : ''}
+      </li>`;
+    }).join('');
+  }
+
   return {
-    canvas,
-    app,
-    lampButton: document.querySelector('#lamp'),
-    audioButton: document.querySelector('#audio'),
-    resetButton: document.querySelector('#reset'),
-    progress(value) { document.querySelector('progress').value = value; },
+    canvas, app,
+    lampButton: $('#lamp'), audioButton: $('#audio'), resetButton: $('#reset'),
+    connect(handler) { onAction = handler; },
+    progress(value) { $('progress').value = value; },
     ready() {
-      document.querySelector('#loading').remove();
+      $('#loading').remove();
       app.dataset.ready = 'true';
     },
-    feedback(message) { document.querySelector('#feedback').textContent = message; },
-    render(state) {
-      document.querySelector('#lamp').setAttribute('aria-pressed', String(state.headlamp));
-      document.querySelector('#audio').setAttribute('aria-pressed', String(state.audio));
+    feedback(message) { $('#feedback').textContent = message; },
+    render(s) {
+      state = s;
+      const active = canAct(s);
+      const welcome = ['loading', 'welcome'].includes(s.phase);
+      const finished = ['debrief', 'complete'].includes(s.phase);
+      const hiddenEvaluation = s.mode === 'evaluation' && !finished;
+      app.dataset.phase = s.phase;
+      app.dataset.mode = s.mode ?? '';
+      $('#welcome').hidden = !welcome;
+      for (const selector of ['#mission-header', '#mission-layout', '#mission-footer']) $(selector).inert = welcome;
+      $('.scene-shell').inert = !active && !finished;
+      canvas.tabIndex = active ? 0 : -1;
+      $('#scene-lock').hidden = active || finished;
+      $('#mode-label').textContent = s.mode ? t.modes[s.mode] : t.welcome.choice;
+      $('#procedure-progress').textContent = t.checklist.progress(s.steps.filter(step => step.completed).length, STEPS.length);
+      $('#current-step').textContent = finished ? t.debrief.title : t.steps[currentStep(s).id].title;
+      $('#elapsed').textContent = formatTime(s.elapsedMs);
+      $('#error-count').textContent = hiddenEvaluation ? t.metrics.endOnly : String(s.errors.length);
+      $('#hint-count').textContent = hiddenEvaluation ? '—' : String(s.hintsUsed);
+      const physical = sceneState(s);
+      $('#power-status').textContent = physical.circuitOn ? t.power.on : t.power.off;
+      $('#alarm-status').textContent = physical.alarmActive ? t.power.alarm : t.power.restored;
+      $('#alarm-status').dataset.active = String(physical.alarmActive);
+      $('#lamp').setAttribute('aria-pressed', String(s.headlamp));
+      $('#audio').setAttribute('aria-pressed', String(s.audio));
+      for (const selector of ['#lamp', '#reset', '#debug-validate', '#debug-error']) $(selector).disabled = !active;
+      $('#put-down').disabled = !active || !s.selectedTool;
+      $('#briefing').disabled = !['running', 'debrief', 'complete'].includes(s.phase);
+      $('#help').hidden = s.mode !== 'training'; $('#help').disabled = !active;
+      $('#help').title = s.steps[s.stepIndex].hintLevel === 3 ? t.radio.demoAgain : t.radio.help;
+      $('#summary').hidden = !finished;
+      for (const button of $('.toolbelt').querySelectorAll('button')) {
+        button.disabled = !active; button.setAttribute('aria-pressed', String(button.dataset.tool === s.selectedTool));
+      }
+      $('#selected-tool').textContent = s.selectedTool ? t.tools[s.selectedTool].detail : t.tools.none;
+      renderChecklist(s);
+      const m = s.message;
+      $('#radio').dataset.kind = m?.kind ?? 'instruction';
+      $('#radio').classList.toggle('is-collapsed', s.radioCollapsed);
+      $('#radio').classList.toggle('has-unread', s.unread);
+      $('#radio-body').hidden = s.radioCollapsed;
+      $('#radio-unread').hidden = !s.unread;
+      $('#radio-toggle').textContent = s.radioCollapsed ? '+' : '−';
+      $('#radio-toggle').setAttribute('aria-expanded', String(!s.radioCollapsed));
+      $('#radio-toggle').setAttribute('aria-label', s.radioCollapsed ? t.radio.expand : t.radio.collapse);
+      $('#radio-category').textContent = s.phase === 'briefing' ? `${s.resume ? `${t.radio.replayNote} · ` : ''}${t.radio.briefing(s.briefingIndex + 1, briefingCount(s))}`
+        : m?.topic === 'hint' ? t.radio.hintProgress(s.steps[s.stepIndex].hintLevel) : t.radio[m?.kind ?? 'instruction'];
+      if (m) writer.render(m);
+      else { writer.render(null); $('#radio-text').textContent = s.mode === 'evaluation' ? t.radio.evaluationSilence : t.radio.waiting; }
+      if (m?.id !== messageId) {
+        messageId = m?.id;
+        $('#radio-announcement').textContent = m ? `${t.radio.title}. ${m.text}` : '';
+        $('#radio-demo').innerHTML = m?.demo ? demoMarkup(m.demo, currentStep(s).id) : '';
+      }
+      $('#radio-next').hidden = !m || s.phase === 'complete';
+      $('#radio-next').textContent = m && !m.complete ? t.radio.reveal
+        : s.phase === 'briefing' && s.briefingIndex === briefingCount(s) - 1 ? t.radio.ready
+          : s.phase === 'running' && !s.messageQueue.length ? t.radio.understood : t.radio.next;
+      if (s.phase !== previousPhase) {
+        if (s.phase === 'welcome' && previousPhase && previousPhase !== 'loading') $('#welcome-sound').checked = s.audio;
+        previousPhase = s.phase;
+        queueMicrotask(() => {
+          if (s.phase === 'welcome') $('#welcome input[name="mode"]:checked').focus();
+          else if (s.phase === 'briefing' || s.phase === 'debrief') $('#radio-next').focus();
+          else if (s.phase === 'running') canvas.focus({ preventScroll: true });
+          else if (s.phase === 'complete') $('#restart').focus();
+        });
+      }
     },
     fatal() {
-      document.querySelector('#loading').innerHTML = `<strong role="alert">${t.fatalTitle}</strong><span>${t.fatalMessage}</span>`;
+      const loading = $('#loading');
+      if (loading) loading.innerHTML = `<strong role="alert">${t.fatalTitle}</strong><span>${t.fatalMessage}</span>`;
     },
   };
 }
