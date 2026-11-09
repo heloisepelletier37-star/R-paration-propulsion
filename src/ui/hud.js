@@ -1,5 +1,6 @@
 import { textes as t } from './textes.js';
-import { STEPS, TOOLS, canAct, currentStep, sceneState } from '../state/procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker } from '../state/procedure.js';
+import { isScrewdriver } from '../steps/step1-power.js';
 import { briefingCount, stepStatus } from '../state/machine.js';
 import { icon } from './icons.js';
 import { demoMarkup } from './demos.js';
@@ -38,9 +39,10 @@ export function createHud() {
       <section class="scene-shell" aria-label="${t.title}">
         <canvas id="mars-view" tabindex="0" role="img" aria-label="${t.sceneLabel}"></canvas>
         <div class="visor" aria-hidden="true"></div>
+        <div class="shock-flash" aria-hidden="true"></div><p id="shock-alert" class="shock-alert" role="alert" hidden>${t.shock.title}</p>
         <div class="scene-telemetry"><span id="power-status"></span><span id="alarm-status"></span></div>
         <div id="scene-lock" class="scene-lock"><span>${t.controls.locked}</span></div>
-        <div class="scene-help"><span>${t.controls.look}</span><small>${t.controls.zoom}</small></div>
+        <div class="scene-help"><span id="scene-instructions">${t.controls.look}</span><small>${t.controls.zoom}</small></div>
         <section id="summary" class="summary" aria-labelledby="summary-title" hidden>
           <span class="eyebrow">${t.debug.badge}</span><h2 id="summary-title">${t.debrief.title}</h2><p>${t.debrief.note}</p>
           <button id="restart" class="primary-button" type="button">${t.debrief.restart}</button>
@@ -50,6 +52,12 @@ export function createHud() {
         <div class="mission-context"><span class="eyebrow">${t.mission}</span><h1>${t.title}</h1><p id="current-step"></p>
           <dl class="metrics"><div><dt>${t.metrics.time}</dt><dd id="elapsed">00:00</dd></div><div><dt>${t.metrics.errors}</dt><dd id="error-count">0</dd></div><div><dt>${t.metrics.hints}</dt><dd id="hint-count">0</dd></div></dl>
         </div>
+        <details id="power-controls" class="power-controls"><summary>${t.powerControls.title}</summary>
+          <button id="power-cover" type="button">${t.powerControls.cover}</button>
+          <div class="lever-input"><div id="power-lever" role="slider" aria-label="${t.powerControls.lever}" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-describedby="lever-keyboard" tabindex="-1"><span class="lever-threshold" aria-hidden="true">${t.powerControls.threshold}</span><span class="lever-handle" aria-hidden="true"></span></div><span id="lever-value"></span></div>
+          <p id="lever-keyboard" class="small-note">${t.powerControls.keyboard}</p>
+          <button id="hatch-contact" type="button">${t.powerControls.hatch}</button>
+        </details>
         <section id="radio" class="radio" data-kind="instruction" aria-label="${t.radio.title}">
           <div class="radio-header"><span class="radio-signal" aria-hidden="true">≋</span><h2>${t.radio.title}</h2><button id="radio-toggle" type="button" aria-label="${t.radio.collapse}" aria-controls="radio-body" aria-expanded="true">−</button></div>
           <span id="radio-unread" class="unread-badge" hidden>${t.radio.unread}</span>
@@ -88,6 +96,7 @@ export function createHud() {
   let checklistSignature;
   let messageId;
   let previousPhase;
+  let powerReleaseId = 0;
   const writer = createTypewriter($('#radio-text'), id => onAction({ type: 'TYPING_FINISHED', messageId: id }));
   const emit = event => onAction(event);
   const advance = () => {
@@ -107,6 +116,8 @@ export function createHud() {
   $('#debug-error').addEventListener('click', () => emit({ type: 'RECORD_ERROR', stepId: currentStep(state).id, code: currentStep(state).error, source: 'debug' }));
   $('#restart').addEventListener('click', () => emit({ type: 'RESTART' }));
   $('#put-down').addEventListener('click', () => emit({ type: 'SELECT_TOOL', toolId: null }));
+  $('#power-cover').addEventListener('click', () => emit({ type: 'OPEN_POWER_COVER' }));
+  $('#hatch-contact').addEventListener('click', () => emit({ type: 'TOUCH_HATCH', nodeName: 'Hatch' }));
   $('.toolbelt').addEventListener('click', event => {
     const button = event.target.closest('[data-tool]');
     if (button && !button.disabled) emit({ type: 'SELECT_TOOL', toolId: button.dataset.tool });
@@ -131,7 +142,7 @@ export function createHud() {
       }
       return;
     }
-    const nativeControl = target.closest('button, input, select, textarea, a');
+    const nativeControl = target.closest('button, input, select, textarea, a, [role="slider"]');
     if (event.code === 'Space' && !nativeControl && state.message) { event.preventDefault(); advance(); return; }
     if (!canAct(state) || target.closest('input, select, textarea')) return;
     const tool = TOOLS.find(item => item.key === event.code);
@@ -158,6 +169,7 @@ export function createHud() {
 
   return {
     canvas, app,
+    leverControl: $('#power-lever'),
     lampButton: $('#lamp'), audioButton: $('#audio'), resetButton: $('#reset'),
     connect(handler) { onAction = handler; },
     progress(value) { $('progress').value = value; },
@@ -176,9 +188,13 @@ export function createHud() {
       app.dataset.mode = s.mode ?? '';
       $('#welcome').hidden = !welcome;
       for (const selector of ['#mission-header', '#mission-layout', '#mission-footer']) $(selector).inert = welcome;
-      $('.scene-shell').inert = !active && !finished;
+      canvas.inert = !active;
       canvas.tabIndex = active ? 0 : -1;
-      $('#scene-lock').hidden = active || finished;
+      $('#scene-lock').hidden = active || finished || s.phase === 'running';
+      $('.scene-shell').classList.toggle('is-shocked', s.shock.active);
+      app.dataset.shock = String(s.shock.id);
+      $('#shock-alert').hidden = !s.shock.active;
+      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : t.controls.look;
       $('#mode-label').textContent = s.mode ? t.modes[s.mode] : t.welcome.choice;
       $('#procedure-progress').textContent = t.checklist.progress(s.steps.filter(step => step.completed).length, STEPS.length);
       $('#current-step').textContent = finished ? t.debrief.title : t.steps[currentStep(s).id].title;
@@ -191,7 +207,24 @@ export function createHud() {
       $('#alarm-status').dataset.active = String(physical.alarmActive);
       $('#lamp').setAttribute('aria-pressed', String(s.headlamp));
       $('#audio').setAttribute('aria-pressed', String(s.audio));
-      for (const selector of ['#lamp', '#reset', '#debug-validate', '#debug-error']) $(selector).disabled = !active;
+      for (const selector of ['#lamp', '#reset', '#debug-error']) $(selector).disabled = !active;
+      $('#debug-validate').disabled = !active || s.stepIndex === 0;
+      $('#debug-validate').title = s.stepIndex === 0 ? t.debug.realPower : t.debug.validate;
+      $('#power-cover').disabled = !canUseBreaker(s) || s.power.cover !== 'closed';
+      $('#power-cover').textContent = s.power.cover === 'closed' ? t.powerControls.cover : s.power.cover === 'opening' ? t.powerControls.opening : t.powerControls.opened;
+      const leverEnabled = canUseBreaker(s) && s.power.cover === 'open';
+      $('#power-lever').setAttribute('aria-disabled', String(!leverEnabled));
+      $('#power-lever').tabIndex = leverEnabled ? 0 : -1;
+      const percent = Math.round(s.power.leverProgress * 100);
+      $('#power-lever').setAttribute('aria-valuenow', String(percent));
+      $('#power-lever').setAttribute('aria-valuetext', t.powerControls.progress(percent));
+      $('#power-lever').style.setProperty('--lever-progress', s.power.leverProgress);
+      $('#lever-value').textContent = t.powerControls.progress(percent);
+      $('#hatch-contact').disabled = !active || !isScrewdriver(s.selectedTool);
+      $('#hatch-contact').title = isScrewdriver(s.selectedTool) ? t.powerControls.hatch : t.powerControls.toolRequired;
+      if (s.phase === 'welcome') powerReleaseId = 0;
+      if (s.shock.active || (s.power.releaseId !== powerReleaseId && s.power.lastRelease === 'success')) $('#power-controls').open = false;
+      powerReleaseId = s.power.releaseId;
       $('#put-down').disabled = !active || !s.selectedTool;
       $('#briefing').disabled = !['running', 'debrief', 'complete'].includes(s.phase);
       $('#help').hidden = s.mode !== 'training'; $('#help').disabled = !active;

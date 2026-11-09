@@ -1,4 +1,5 @@
-import { STEPS, TOOLS, canAct, currentStep } from './procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, canUseBreaker } from './procedure.js';
+import { initialPowerState, COVER_DURATION_MS, SHOCK_DURATION_MS, clampProgress, passesThreshold, HATCH_TARGETS, isScrewdriver } from '../steps/step1-power.js';
 import { textes as t } from '../ui/textes.js';
 
 export const briefingCount = state => state.mode === 'evaluation' ? 1 : t.briefing.length;
@@ -21,18 +22,25 @@ function initialState(audio = false) {
     briefingIndex: 0, resume: null, sequence: 0, message: null, messageQueue: [],
     radioCollapsed: false, unread: false, selectedTool: null, headlamp: false, audio,
     errors: [], hintsUsed: 0, hintLog: [], validations: [],
+    power: initialPowerState(), shock: { id: 0, active: false, at: null, until: null, point: null },
     elapsedMs: 0, clockAt: null, lastActivityAt: 0, idlePrompted: false,
   };
 }
 
 function advanceClock(state, time) {
-  if (canAct(state) && state.clockAt !== null) state.elapsedMs += Math.max(0, time - state.clockAt);
+  if (state.phase === 'running' && state.clockAt !== null) state.elapsedMs += Math.max(0, time - state.clockAt);
   state.clockAt = Math.max(time, state.clockAt ?? time);
 }
 
 function activity(state, time) {
   state.lastActivityAt = time;
   state.idlePrompted = false;
+}
+
+function cancelDrag(state) {
+  if (!state.power.dragging) return;
+  Object.assign(state.power, { dragging: false, leverProgress: 0, lastRelease: 'cancelled',
+    dragId: state.power.dragId + 1, releaseId: state.power.releaseId + 1 });
 }
 
 function message(text, topic = 'step', kind = 'instruction', demo = null) {
@@ -85,6 +93,9 @@ function finishStep(state, time, source) {
   state.validations.push({ stepId: step.id, source, atMs: state.elapsedMs });
   activity(state, time);
   if (index === STEPS.length - 1) {
+    state.power.circuitOn = true;
+    state.power.cover = 'closed';
+    state.power.leverProgress = 0;
     state.phase = 'debrief';
     state.selectedTool = null;
     state.headlamp = false;
@@ -133,6 +144,7 @@ function reduce(state, event, time) {
     case 'REPLAY_BRIEFING': {
       if (!['running', 'debrief', 'complete'].includes(state.phase)) return state;
       const s = next();
+      cancelDrag(s);
       s.resume = { phase: s.phase, message: s.message, queue: s.messageQueue };
       s.phase = 'briefing'; s.briefingIndex = 0; s.radioCollapsed = false; showBriefing(s); return s;
     }
@@ -173,15 +185,76 @@ function reduce(state, event, time) {
       if (s.mode === 'training') showMessages(s, [message(t.errors[event.code].why, 'error', 'error')]);
       activity(s, time); return s;
     }
+    case 'OPEN_POWER_COVER': {
+      if (!canUseBreaker(state) || state.power.cover !== 'closed') return state;
+      const s = next();
+      Object.assign(s.power, { cover: 'opening', coverId: s.power.coverId + 1, coverStartedAt: time });
+      activity(s, time); return s;
+    }
+    case 'POWER_COVER_READY': {
+      if (!canUseBreaker(state) || state.power.cover !== 'opening' || event.coverId !== state.power.coverId
+          || time - state.power.coverStartedAt < COVER_DURATION_MS) return state;
+      const s = next(); s.power.cover = 'open'; s.steps[0].substeps.cover = true;
+      return s;
+    }
+    case 'POWER_DRAG_START': {
+      if (!canUseBreaker(state) || state.power.cover !== 'open' || state.power.dragging) return state;
+      const s = next(); s.power.dragging = true; s.power.dragId++; s.power.lastRelease = null;
+      activity(s, time); return s;
+    }
+    case 'POWER_DRAG_MOVE': {
+      if (!canUseBreaker(state) || !state.power.dragging || event.dragId !== state.power.dragId || !Number.isFinite(event.progress)) return state;
+      const s = next(); s.power.leverProgress = clampProgress(event.progress); activity(s, time); return s;
+    }
+    case 'POWER_DRAG_END': {
+      if (!canUseBreaker(state) || !state.power.dragging || event.dragId !== state.power.dragId) return state;
+      const s = next(); s.power.dragging = false; s.power.releaseId++;
+      if (passesThreshold(s.power.leverProgress)) {
+        Object.assign(s.power, { circuitOn: false, leverProgress: 1, lastRelease: 'success' });
+        s.steps[0].substeps.breaker = true;
+        finishStep(s, time, 'gesture');
+      } else {
+        Object.assign(s.power, { leverProgress: 0, lastRelease: 'short' });
+        activity(s, time);
+      }
+      return s;
+    }
+    case 'POWER_DRAG_CANCEL': {
+      if (!state.power.dragging || event.dragId !== state.power.dragId) return state;
+      const s = next(); cancelDrag(s); return s;
+    }
+    case 'TOUCH_HATCH': {
+      if (!canAct(state) || !state.power.circuitOn || !isScrewdriver(state.selectedTool) || !HATCH_TARGETS.includes(event.nodeName)) return state;
+      const s = next(); cancelDrag(s); s.stepIndex = 0;
+      for (const step of s.steps) {
+        step.completed = false;
+        Object.keys(step.substeps).forEach(id => { step.substeps[id] = false; });
+      }
+      s.steps[0].substeps.cover = s.power.cover === 'open';
+      s.power.leverProgress = 0;
+      s.shock = { id: s.shock.id + 1, active: true, at: time, until: time + SHOCK_DURATION_MS,
+        point: Array.isArray(event.point) && event.point.length === 3 && event.point.every(Number.isFinite) ? [...event.point] : null };
+      const error = { stepId: 'power', code: 'liveCircuit', atMs: s.elapsedMs, source: 'gesture' };
+      s.errors.push(error); s.steps[0].errors.push(error);
+      if (s.mode === 'training') {
+        s.radioCollapsed = false;
+        showMessages(s, [message(t.errors.liveCircuit.why, 'error', 'error')]);
+      }
+      activity(s, time); return s;
+    }
+    case 'SHOCK_FINISHED': {
+      if (!state.shock.active || event.shockId !== state.shock.id || time < state.shock.until) return state;
+      const s = next(); s.shock.active = false; return s;
+    }
     case 'COMPLETE_SUBSTEP': {
-      if (!canAct(state) || event.stepId !== currentStep(state).id
+      if (!canAct(state) || event.stepId === 'power' || event.stepId !== currentStep(state).id
           || !currentStep(state).substeps.includes(event.substepId)
           || state.steps[state.stepIndex].substeps[event.substepId]) return state;
       const s = next(); s.steps[s.stepIndex].substeps[event.substepId] = true; activity(s, time); return s;
     }
     case 'VALIDATE_STEP':
     case 'DEBUG_VALIDATE_STEP': {
-      if (!canAct(state) || event.stepId !== currentStep(state).id) return state;
+      if (!canAct(state) || event.stepId === 'power' || event.stepId !== currentStep(state).id) return state;
       if (event.type === 'VALIDATE_STEP' && !Object.values(state.steps[state.stepIndex].substeps).every(Boolean)) return state;
       const s = next();
       if (event.type === 'DEBUG_VALIDATE_STEP') {
@@ -194,9 +267,10 @@ function reduce(state, event, time) {
       const s = next(); activity(s, time); return s;
     }
     case 'TICK': {
-      if (!canAct(state)) return state;
+      if (state.phase !== 'running') return state;
       const s = next();
-      if (s.mode === 'training' && !s.idlePrompted && time - s.lastActivityAt >= 30000) {
+      if (s.shock.active && time >= s.shock.until) s.shock.active = false;
+      if (canAct(s) && s.mode === 'training' && !s.idlePrompted && time - s.lastActivityAt >= 30000) {
         showMessages(s, [message(t.radio.idle, 'idle')]); s.idlePrompted = true;
       }
       return s;

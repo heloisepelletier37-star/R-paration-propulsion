@@ -6,6 +6,7 @@ export function createAlarmAudio(camera, alarm) {
   let oscillator;
   let enabled = false;
   let requested = false;
+  let alarmAudible = false;
   return {
     async setEnabled(value) {
       requested = Boolean(value);
@@ -42,8 +43,26 @@ export function createAlarmAudio(camera, alarm) {
       note.start(); note.stop(context.currentTime + 0.1);
       return true;
     },
-    update(elapsed, powered = true, alarmActive = true) {
-      if (enabled) sound.setVolume(powered && alarmActive && elapsed % 1 < 0.12 ? 0.045 : 0);
+    effect(kind) {
+      if (!enabled || listener.context.state !== 'running') return;
+      const context = listener.context;
+      const duration = kind === 'shock' ? 0.13 : 0.055;
+      const envelope = context.createGain();
+      const note = context.createOscillator();
+      note.type = kind === 'shock' ? 'sawtooth' : 'square';
+      note.frequency.setValueAtTime(kind === 'shock' ? 2500 : 180, context.currentTime);
+      note.frequency.exponentialRampToValueAtTime(kind === 'shock' ? 140 : 65, context.currentTime + duration);
+      envelope.gain.setValueAtTime(0.0001, context.currentTime);
+      envelope.gain.exponentialRampToValueAtTime(kind === 'shock' ? 0.035 : 0.06, context.currentTime + 0.005);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
+      note.connect(envelope); envelope.connect(listener.getInput());
+      note.onended = () => { note.disconnect(); envelope.disconnect(); };
+      note.start(); note.stop(context.currentTime + duration + 0.01);
     },
+    update(elapsed, powered = true, alarmActive = true) {
+      alarmAudible = enabled && powered && alarmActive && elapsed % 1 < 0.12;
+      if (sound) sound.setVolume(alarmAudible ? 0.045 : 0);
+    },
+    snapshot() { return { enabled, alarmAudible, volume: sound?.getVolume() ?? 0 }; },
   };
 }

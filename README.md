@@ -1,6 +1,6 @@
 # Mars — Réparer la propulsion
 
-Une simulation pédagogique 3D en JavaScript, Vite et Three.js. La scène martienne et l’accompagnement pédagogique sont en place : accueil, deux modes, briefing, checklist, outils, indices et débriefing. Les gestes de réparation seront ajoutés ensuite ; des boutons de test permettent déjà de parcourir les cinq étapes.
+Une simulation pédagogique 3D en JavaScript, Vite et Three.js. La scène martienne et l’accompagnement pédagogique sont en place. La première étape se réalise maintenant dans la scène : capot rouge, glissement du levier et risque de choc électrique. Les boutons de test permettent de parcourir les quatre étapes suivantes, dont les gestes restent à développer.
 
 ## Lancer le projet
 
@@ -14,7 +14,7 @@ npm run dev
 Ouvre l’adresse affichée par Vite. La configuration utilise un chemin relatif (`base: './'`) pour s’adapter à l’emplacement de publication.
 
 ```sh
-npm test          # 22 tests : scène, machine à états et écriture progressive
+npm test          # 37 tests : scène, progression, mise hors tension et écriture
 npm run test:browser # Parcours fonctionnel dans Chromium ; lance son serveur Vite
 npm run build    # Produit le site statique dans dist/
 npm run preview  # Sert le build compilé, au même chemin
@@ -37,8 +37,24 @@ export npm_config_cache=/workspace/.environment/npm-cache
 - Messages d’Inès uniquement textuels, écrits progressivement, dans une zone en bas à droite distincte de la vue 3D. Aucun portrait, avatar ou silhouette.
 - Checklist permanente avec les cinq étapes, leurs sous-étapes en Entraînement, progression et erreurs conservées jusqu’au bilan.
 - Sept outils sélectionnables avec représentation en main, indices progressifs, relecture du briefing et débriefing final.
+- Capot animé en 0,4 seconde et levier à glisser au-delà de 70 % ; retour automatique si le geste est insuffisant ou annulé.
+- Choc électrique au contact d’un tournevis avec la trappe sous tension : étincelle, flash, décharge sonore, secousse, alerte et erreur consignée.
 
-La caméra, la lampe, les outils et la validation sont verrouillés avant la fin du briefing. Les actions de réparation restent à développer : les boutons de test valident uniquement la progression des écrans et les positions provisoires de la scène.
+La caméra, la lampe, les outils et la validation sont verrouillés avant la fin du briefing. La mise hors tension ne peut pas être validée par debug. Les étapes suivantes conservent leurs boutons de test.
+
+## Étape 1 — Mise hors tension
+
+1. Terminer le briefing, puis cliquer sur le capot rouge du boîtier électrique. Il se relève en 0,4 seconde ; le levier est bloqué pendant cette animation.
+2. Saisir le levier et le glisser vers le bas. **Dépasser 70 % de la course avant de relâcher.** Un relâchement à 70 % exactement ou avant fait revenir le levier sans ajouter d’erreur.
+3. Une coupure réussie déclenche un clac, éteint la LED verte et affiche `Tension : OFF`. Le voyant rouge continue de clignoter sur sa batterie, sans bip. La checklist valide automatiquement les deux sous-étapes et passe à l’ouverture de la trappe.
+
+Pendant le glissement, la caméra reste stable. Échap, une perte de capture du pointeur, un changement de fenêtre ou la relecture du briefing annulent le geste sans couper le courant.
+
+**Au clavier** : ouvrir « Commandes au clavier », activer « Relever le capot rouge », puis focaliser le levier avec Tab. Maintenir `↓` pour le faire descendre et relâcher après 70 % ; `↑` le remonte, `Fin` atteint la course complète et `Échap` annule.
+
+**Choc électrique** : sélectionner un tournevis cruciforme ou plat, puis toucher la trappe ou une de ses vis alors que le circuit est sous tension. Un seul contact déclenche les effets et une erreur dans le journal, puis remet la procédure à l’étape 1. Le court délai de récupération empêche un même contact tenu de compter plusieurs erreurs. Le bouton « Toucher la trappe avec le tournevis » offre le même contact au clavier. Une trappe hors tension ne provoque aucune décharge.
+
+En Évaluation, l’alerte physique de sécurité reste visible, mais Inès ne donne pas d’explication intermédiaire et le journal détaillé n’apparaît qu’au bilan. Les sons respectent le choix Son ; la préférence « réduire les animations » supprime la secousse et le flash animé.
 
 ## Accompagnement pédagogique
 
@@ -50,15 +66,15 @@ Le bouton **Briefing** permet de relire les messages à tout moment après le d�
 
 Le bouton `−` réduit l’encadré d’Inès. Un nouveau message laisse l’encadré réduit et signale sa présence par une pastille clignotante et un libellé. Le liseré est bleu pour une consigne, vert pour une réussite et orange pour une erreur. Les lecteurs d’écran reçoivent le message complet en une seule annonce.
 
-## Parcourir les étapes avant l’ajout des gestes
+## Parcourir les étapes encore provisoires
 
 1. Choisir un mode et terminer son briefing.
-2. Sélectionner un outil, consulter les indices en Entraînement et, si utile, utiliser **Simuler une erreur**.
-3. Cliquer sur **Valider l’étape (test)** : toutes les sous-étapes courantes sont cochées et seule l’étape suivante est débloquée.
+2. Réaliser la mise hors tension avec le capot et le levier. En Entraînement, les indices et **Simuler une erreur** permettent aussi de tester les retours pédagogiques.
+3. Pour les étapes 2 à 5, cliquer sur **Valider l’étape (test)** : leurs sous-étapes sont cochées et seule l’étape suivante est débloquée.
 4. Après les cinq validations, parcourir le débriefing : réussites, erreurs avec règles à retenir, nombre d’indices et conclusion.
 5. Utiliser **Recommencer** pour revenir à l’accueil avec un nouveau journal.
 
-Ces validations sont explicitement enregistrées comme du debug. Elles ne prouvent pas la maîtrise des gestes et ne produisent pas de note. Les poses de la trappe, du disjoncteur et des voyants suivent la progression pour rendre le parcours visible.
+La première validation est enregistrée comme un geste ; les quatre suivantes sont identifiées comme du debug. Le parcours ne produit pas encore de note sur la réparation complète. Les poses de la trappe et des voyants suivent la progression.
 
 ## Commandes
 
@@ -72,6 +88,10 @@ Ces validations sont explicitement enregistrées comme du debug. Elles ne prouve
 | Choisir un outil | Bouton de la ceinture | `1` à `7`, ou `Tab` puis `Entrée` |
 | Poser l’outil | Bouton Poser l’outil | `Échap` |
 | Lire le message suivant | Bouton dans l’encadré d’Inès | `Espace` ou activation du bouton au clavier |
+| Ouvrir le capot | Clic sur le capot rouge | Bouton Relever le capot rouge |
+| Abaisser le levier | Glisser vers le bas, puis relâcher | Focaliser le levier, maintenir `↓` puis relâcher ; `Fin` pour la course complète |
+| Annuler un glissement | Relâchement avant le seuil ou perte de capture | `Échap` |
+| Toucher la trappe | Contact du tournevis sélectionné dans la vue | Bouton Toucher la trappe avec le tournevis |
 
 Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. Les futurs gestes `Q` et `E` sont présentés en démonstration ; ils ne sont pas encore actifs.
 
@@ -85,21 +105,25 @@ Les commandes de vue et d’outils ne sont disponibles qu’après le briefing. 
 - `src/state/machine.js` : transitions, verrouillage, messages, erreurs, indices et temps actif.
 - `src/state/procedure.js` : identifiants des cinq étapes, sous-étapes, outils et projection de l’état.
 - `src/ui/textes.js` : textes modifiables de l’interface et des étiquettes.
-- `src/interactions/`, `src/steps/` : emplacements réservés aux prochaines tâches.
+- `src/interactions/power.js` : raycasting, capture du pointeur et commandes clavier du boîtier.
+- `src/steps/step1-power.js` : durée du capot, course, seuil strict et identifiants des cibles.
+- `src/scene/electric-shock.js` : étincelles et secousse à durée limitée.
 - `public/models/`, `public/sounds/`, `public/hdri/`, `public/textures/` : futurs fichiers locaux.
 
 Les consignes existantes portent actuellement le nom `AGENTS (1).md`. Les spécifications se trouvent dans `SPEC.md` et `docs/Spec.md` (attention à la casse sous Linux).
 
 ### Brancher les futurs gestes
 
-Les gestes devront émettre des événements vers `createMachine()` :
+La mise hors tension utilise `OPEN_POWER_COVER`, `POWER_COVER_READY`, `POWER_DRAG_START`, `POWER_DRAG_MOVE`, `POWER_DRAG_END` et `POWER_DRAG_CANCEL`. La machine contrôle les délais et identifiants de geste. `TOUCH_HATCH` applique le choc sous tension ; `SHOCK_FINISHED` ne peut le terminer avant son délai.
+
+Les gestes des étapes suivantes devront émettre des événements vers `createMachine()` :
 
 - `COMPLETE_SUBSTEP` avec `stepId` et `substepId` coche une sous-étape de l’étape courante.
 - `VALIDATE_STEP` avec `stepId` ne passe à la suite que si toutes ses sous-étapes sont terminées.
 - `RECORD_ERROR` avec `stepId` et `code` ajoute une erreur connue du catalogue de `src/ui/textes.js`.
 - `ACTIVITY` réarme le délai d’inactivité ; les sélections d’outils et les actions de l’interface le font déjà.
 
-Les validations d’une autre étape, les événements périmés et les actions pendant le briefing sont refusés par la machine, indépendamment de l’état des boutons. Les snapshots sont immuables.
+Les validations d’une autre étape, les événements périmés et les actions pendant le briefing sont refusés par la machine, indépendamment de l’état des boutons. Les événements génériques de validation et de sous-étape ne peuvent pas contourner le capot et le levier de l’étape 1. Les snapshots sont immuables.
 
 ### Vérifications navigateur
 
@@ -109,9 +133,9 @@ Les validations d’une autre étape, les événements périmés et les actions 
 CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
 ```
 
-Le parcours vérifie les deux modes, les verrouillages, les outils, les trois indices, les erreurs, la relecture, les cinq étapes, le débriefing et l’absence de chevauchement entre la radio et la vue 3D sur petit écran. Il enregistre les captures sous `.artifacts/` (ignoré par Git).
+Le parcours vérifie les deux modes et l’accompagnement, puis teste le boîtier, le seuil, les annulations, la coupure et le choc. En développement, il pilote réellement la souris dans la scène à partir des projections des nœuds ; les positions de debug sont en lecture seule. Le build compilé est contrôlé au clavier. Les captures sont enregistrées sous `.artifacts/` (ignoré par Git).
 
-Captures de référence : [accueil](docs/screenshots/accueil.png), [accompagnement](docs/screenshots/accompagnement.png), [petit écran](docs/screenshots/accompagnement-mobile.png).
+Captures de référence : [accueil](docs/screenshots/accueil.png), [accompagnement](docs/screenshots/accompagnement.png), [petit écran](docs/screenshots/accompagnement-mobile.png), [mise hors tension](docs/screenshots/mise-hors-tension.png).
 
 Pour tester le build compilé, lancer `npm run preview` dans un premier terminal, puis fournir son adresse au test depuis un second terminal :
 
@@ -137,13 +161,13 @@ Le `base` Vite relatif (`./`) conserve la configuration de `main`. Les ressource
 
 Les fichiers présents dans `dist/` sont générés et ne doivent pas être commités.
 
-## Checklist avant l’ajout des gestes
+## Checklist avant l’étape suivante
 
 - [ ] `npm ci`, `npm test` et `npm run build` réussissent.
 - [ ] La scène démarre via `npm run dev` sans erreur de console ; les avertissements « géométries provisoires » sont attendus.
 - [ ] Le sol, les roches, le ciel, le soleil et la poussière sont visibles.
 - [ ] La trappe, ses quatre vis, la vis de sécurité, le boîtier et les outils sont repérables.
-- [ ] Le voyant rouge clignote à 1 Hz ; la LED verte reste allumée.
+- [ ] Au départ, le voyant rouge clignote à 1 Hz et la LED verte est allumée.
 - [ ] La vue respire légèrement ; glisser ou utiliser les flèches ne déplace pas l’astronaute et reste limité.
 - [ ] Le zoom reste limité, `R` recentre et `L` commande la lampe ; les boutons fonctionnent au clavier.
 - [ ] Le son démarre uniquement à la demande et peut être coupé.
@@ -155,7 +179,11 @@ Les fichiers présents dans `dist/` sont générés et ne doivent pas être comm
 - [ ] La relecture suspend les actions et le chrono sans effacer le journal.
 - [ ] Les indices progressent jusqu’à la démonstration et sont comptés ; l’inactivité propose une aide sans la compter.
 - [ ] Les erreurs restent visibles dans la checklist après une réussite et sont expliquées au bilan.
-- [ ] En Évaluation : un seul message initial, cinq titres, aucune aide ni retour intermédiaire.
-- [ ] Les cinq validations successives conduisent au débriefing, puis Recommencer réinitialise le parcours.
+- [ ] En Évaluation : un seul message initial, cinq titres, aucune aide ; seule l’alerte physique de sécurité intervient lors d’un choc.
+- [ ] Le capot s’ouvre en 0,4 seconde et le levier reste bloqué avant son ouverture complète.
+- [ ] À 70 % exactement ou moins, le levier revient sans validation ; au-delà, le relâchement coupe le courant.
+- [ ] Après coupure, la LED verte et le bip s’éteignent ; l’alarme rouge clignote toujours et l’étape 2 est active.
+- [ ] Un tournevis sur la trappe sous tension déclenche les effets et une erreur ; le même contact hors tension reste sans décharge.
+- [ ] Le debug ne peut pas valider l’étape 1 ; le geste réel puis les quatre validations de test conduisent au débriefing.
 
 Les résultats d’une validation dans Chromium avec un GPU logiciel ne garantissent pas 60 images/s sur toutes les machines. Chrome, Firefox et Edge restent à vérifier sur les postes ciblés avant la livraison finale.
