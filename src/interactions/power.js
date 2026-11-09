@@ -61,7 +61,7 @@ export function createPowerInteractions({ canvas, slider, root, camera, machine,
     } else if (name === 'Breaker_Lever' && canUseBreaker(machine.state)) {
       consume(event);
       beginLever(canvas, event, projection.leverTravel(camera, canvas.clientHeight, hit.point), hit.point);
-    } else if (HATCH_TARGETS.includes(name) && isScrewdriver(machine.state.selectedTool)) {
+    } else if (HATCH_TARGETS.includes(name) && isScrewdriver(machine.state.selectedTool) && machine.state.power.circuitOn) {
       consume(event);
       machine.dispatch({ type: 'TOUCH_HATCH', nodeName: name, point: hit.point.toArray() });
     }
@@ -73,9 +73,9 @@ export function createPowerInteractions({ canvas, slider, root, camera, machine,
         progress: dragProgress(gesture.initial, gesture.startY, event.clientY, gesture.travel) });
       return;
     }
-    if (event.target !== canvas) return;
+    if (event.target !== canvas || machine.state.stepIndex === 1) return;
     const hit = canAct(machine.state) ? hitAt(event) : null;
-    canvas.style.cursor = hit?.target.name === 'Breaker_Lever' && machine.state.power.cover === 'open' ? 'ns-resize'
+    if (machine.state.stepIndex !== 1) canvas.style.cursor = hit?.target.name === 'Breaker_Lever' && machine.state.power.cover === 'open' ? 'ns-resize'
       : hit && (hit.target.name === 'Breaker_Cover' || isScrewdriver(machine.state.selectedTool)) ? 'pointer' : 'grab';
   }
   function up(event) {

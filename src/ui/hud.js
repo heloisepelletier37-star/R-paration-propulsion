@@ -1,6 +1,7 @@
 import { textes as t } from './textes.js';
-import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker } from '../state/procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, sceneState, canUseBreaker, canOpenHatch } from '../state/procedure.js';
 import { isScrewdriver } from '../steps/step1-power.js';
+import { ALL_SCREWS, removed, removedCount } from '../steps/step2-hatch.js';
 import { briefingCount, stepStatus } from '../state/machine.js';
 import { icon } from './icons.js';
 import { demoMarkup } from './demos.js';
@@ -40,7 +41,9 @@ export function createHud() {
         <canvas id="mars-view" tabindex="0" role="img" aria-label="${t.sceneLabel}"></canvas>
         <div class="visor" aria-hidden="true"></div>
         <div class="shock-flash" aria-hidden="true"></div><p id="shock-alert" class="shock-alert" role="alert" hidden>${t.shock.title}</p>
-        <div class="scene-telemetry"><span id="power-status"></span><span id="alarm-status"></span></div>
+        <div class="scene-telemetry"><span id="power-status"></span><span id="screw-count"></span><span id="alarm-status"></span></div>
+        <div id="screw-guide" class="screw-guide" aria-hidden="true" hidden><span id="screw-guide-value"></span></div>
+        <p id="hatch-feedback" class="hatch-feedback" role="status" hidden></p>
         <div id="scene-lock" class="scene-lock"><span>${t.controls.locked}</span></div>
         <div class="scene-help"><span id="scene-instructions">${t.controls.look}</span><small>${t.controls.zoom}</small></div>
         <section id="summary" class="summary" aria-labelledby="summary-title" hidden>
@@ -57,6 +60,12 @@ export function createHud() {
           <div class="lever-input"><div id="power-lever" role="slider" aria-label="${t.powerControls.lever}" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-describedby="lever-keyboard" tabindex="-1"><span class="lever-threshold" aria-hidden="true">${t.powerControls.threshold}</span><span class="lever-handle" aria-hidden="true"></span></div><span id="lever-value"></span></div>
           <p id="lever-keyboard" class="small-note">${t.powerControls.keyboard}</p>
           <button id="hatch-contact" type="button">${t.powerControls.hatch}</button>
+        </details>
+        <details id="hatch-controls" class="power-controls" hidden><summary>${t.hatchControls.title}</summary>
+          <div class="screw-choices" role="group" aria-label="${t.hatchControls.screwsTitle}">${ALL_SCREWS.map(id => `<button type="button" data-screw="${id}" aria-pressed="false">${t.hatchControls.names[id]}<small></small></button>`).join('')}</div>
+          <p class="small-note">${t.hatchControls.keyboard}</p>
+          <div id="hatch-pull" role="slider" aria-label="${t.hatchControls.pullLabel}" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="110" aria-valuenow="0" tabindex="-1"><span aria-hidden="true">←</span></div>
+          <p id="hatch-angle" class="small-note"></p><p class="small-note">${t.hatchControls.pullKeyboard}</p>
         </details>
         <section id="radio" class="radio" data-kind="instruction" aria-label="${t.radio.title}">
           <div class="radio-header"><span class="radio-signal" aria-hidden="true">≋</span><h2>${t.radio.title}</h2><button id="radio-toggle" type="button" aria-label="${t.radio.collapse}" aria-controls="radio-body" aria-expanded="true">−</button></div>
@@ -97,6 +106,7 @@ export function createHud() {
   let messageId;
   let previousPhase;
   let powerReleaseId = 0;
+  let hatchFeedbackId = 0;
   const writer = createTypewriter($('#radio-text'), id => onAction({ type: 'TYPING_FINISHED', messageId: id }));
   const emit = event => onAction(event);
   const advance = () => {
@@ -118,6 +128,10 @@ export function createHud() {
   $('#put-down').addEventListener('click', () => emit({ type: 'SELECT_TOOL', toolId: null }));
   $('#power-cover').addEventListener('click', () => emit({ type: 'OPEN_POWER_COVER' }));
   $('#hatch-contact').addEventListener('click', () => emit({ type: 'TOUCH_HATCH', nodeName: 'Hatch' }));
+  $('.screw-choices').addEventListener('click', event => {
+    const button = event.target.closest('[data-screw]');
+    if (button && !button.disabled) { emit({ type: 'SELECT_SCREW', screwId: button.dataset.screw }); $('#feedback').textContent = t.hatchControls.selected(t.hatchControls.names[button.dataset.screw]); }
+  });
   $('.toolbelt').addEventListener('click', event => {
     const button = event.target.closest('[data-tool]');
     if (button && !button.disabled) emit({ type: 'SELECT_TOOL', toolId: button.dataset.tool });
@@ -170,6 +184,7 @@ export function createHud() {
   return {
     canvas, app,
     leverControl: $('#power-lever'),
+    hatchControls: $('#hatch-controls'), hatchSlider: $('#hatch-pull'), screwGuide: $('#screw-guide'),
     lampButton: $('#lamp'), audioButton: $('#audio'), resetButton: $('#reset'),
     connect(handler) { onAction = handler; },
     progress(value) { $('progress').value = value; },
@@ -194,7 +209,7 @@ export function createHud() {
       $('.scene-shell').classList.toggle('is-shocked', s.shock.active);
       app.dataset.shock = String(s.shock.id);
       $('#shock-alert').hidden = !s.shock.active;
-      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : t.controls.look;
+      $('#scene-instructions').textContent = active && s.stepIndex === 0 ? t.powerControls.pointer : active && s.stepIndex === 1 ? t.hatchControls.pointer : t.controls.look;
       $('#mode-label').textContent = s.mode ? t.modes[s.mode] : t.welcome.choice;
       $('#procedure-progress').textContent = t.checklist.progress(s.steps.filter(step => step.completed).length, STEPS.length);
       $('#current-step').textContent = finished ? t.debrief.title : t.steps[currentStep(s).id].title;
@@ -208,8 +223,9 @@ export function createHud() {
       $('#lamp').setAttribute('aria-pressed', String(s.headlamp));
       $('#audio').setAttribute('aria-pressed', String(s.audio));
       for (const selector of ['#lamp', '#reset', '#debug-error']) $(selector).disabled = !active;
-      $('#debug-validate').disabled = !active || s.stepIndex === 0;
-      $('#debug-validate').title = s.stepIndex === 0 ? t.debug.realPower : t.debug.validate;
+      $('#reset').disabled = !active || s.power.dragging || s.hatch.turning || s.hatch.dragging;
+      $('#debug-validate').disabled = !active || s.stepIndex < 2;
+      $('#debug-validate').title = s.stepIndex === 0 ? t.debug.realPower : s.stepIndex === 1 ? t.debug.realHatch : t.debug.validate;
       $('#power-cover').disabled = !canUseBreaker(s) || s.power.cover !== 'closed';
       $('#power-cover').textContent = s.power.cover === 'closed' ? t.powerControls.cover : s.power.cover === 'opening' ? t.powerControls.opening : t.powerControls.opened;
       const leverEnabled = canUseBreaker(s) && s.power.cover === 'open';
@@ -225,6 +241,33 @@ export function createHud() {
       if (s.phase === 'welcome') powerReleaseId = 0;
       if (s.shock.active || (s.power.releaseId !== powerReleaseId && s.power.lastRelease === 'success')) $('#power-controls').open = false;
       powerReleaseId = s.power.releaseId;
+      const h = s.hatch;
+      $('#hatch-controls').hidden = s.stepIndex !== 1 || finished;
+      const hatchEnabled = canOpenHatch(s);
+      $('#screw-count').textContent = t.hatchControls.counter(s.steps[3].completed ? 0 : removedCount(h));
+      $('#screw-count').hidden = !s.hasBegun;
+      for (const button of $('.screw-choices').querySelectorAll('[data-screw]')) {
+        const id = button.dataset.screw; const screw = h.screws[id];
+        button.disabled = !hatchEnabled || removed(screw);
+        button.setAttribute('aria-pressed', String(h.selectedScrew === id));
+        button.querySelector('small').textContent = removed(screw) ? t.hatchControls.removedLabel : t.hatchControls.turns(screw.turns);
+      }
+      const pullEnabled = hatchEnabled && removedCount(h) === 4;
+      $('#hatch-pull').setAttribute('aria-disabled', String(!pullEnabled));
+      $('#hatch-pull').tabIndex = pullEnabled ? 0 : -1;
+      const angle = Math.round(h.progress * 110);
+      $('#hatch-pull').setAttribute('aria-valuenow', String(angle));
+      $('#hatch-pull').setAttribute('aria-valuetext', t.hatchControls.angle(angle));
+      $('#hatch-pull').style.setProperty('--hatch-progress', h.progress);
+      $('#hatch-angle').textContent = t.hatchControls.angle(angle);
+      $('#screw-guide-value').textContent = h.selectedScrew ? t.hatchControls.turns(h.screws[h.selectedScrew].turns) : '';
+      $('#hatch-feedback').hidden = !active || s.stepIndex !== 1 || !h.feedbackCode;
+      if (h.feedbackId !== hatchFeedbackId) {
+        hatchFeedbackId = h.feedbackId;
+        const feedback = (s.mode === 'evaluation' ? t.hatchControls.evaluation[h.feedbackCode] : null) ?? t.hatchControls.feedback[h.feedbackCode] ?? '';
+        $('#hatch-feedback').textContent = feedback;
+      }
+      if (s.stepIndex !== 1) $('#hatch-controls').open = false;
       $('#put-down').disabled = !active || !s.selectedTool;
       $('#briefing').disabled = !['running', 'debrief', 'complete'].includes(s.phase);
       $('#help').hidden = s.mode !== 'training'; $('#help').disabled = !active;

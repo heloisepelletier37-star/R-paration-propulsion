@@ -78,6 +78,17 @@ h1, h2, p { margin-top: 0; }
 .lever-handle { position: absolute; left: 3px; width: 32px; height: 16px; border-radius: 3px; background: #e3c189; top: calc(3px + var(--lever-progress) * 71px); pointer-events: none; }
 .lever-threshold { position: absolute; top: 70%; left: -1px; right: -1px; border-top: 1px dashed #e5b970; color: #e5b970; font: 8px Consolas, monospace; padding: 2px 0 0 44px; white-space: nowrap; }
 #lever-value { font: 10px/1.7 Consolas, monospace; color: #cbd9ca; padding-left: 11px; }
+.screw-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+.screw-choices button { margin: 0; padding: 7px 4px; }
+.screw-choices button:last-child { grid-column: 1 / -1; }
+.screw-choices small { display: block; font: 10px/1.6 Consolas, monospace; color: #c8d6c9; margin-top: 3px; }
+#hatch-pull { --hatch-progress: 0; margin-top: 15px; position: relative; height: 36px; border: 1px solid #a9bbac66; border-radius: 4px; background: #071c23; touch-action: none; cursor: ew-resize; }
+#hatch-pull span { position: absolute; top: 3px; bottom: 3px; width: 27px; display: grid; place-items: center; border-radius: 3px; background: #e3c189; color: #14272d; left: calc((1 - var(--hatch-progress)) * (100% - 33px) + 3px); pointer-events: none; }
+#hatch-pull[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+#hatch-pull:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.screw-guide { position: absolute; width: 56px; height: 56px; border: 2px dashed #ffe1a0; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 0 0 1px #12272d99; }
+.screw-guide span { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); padding: 4px 6px; border-radius: 3px; background: #10232bee; color: #ffe1a0; font: 10px Consolas, monospace; white-space: nowrap; }
+.hatch-feedback { position: absolute; bottom: 65px; left: 12px; right: 12px; margin: 0; padding: 8px; background: #10232be8; color: #ffe0a7; text-align: center; font-size: 11px; line-height: 1.5; pointer-events: none; }
 .comms-column { min-width: 0; min-height: 0; background: #14262d; padding: 23px 16px 15px; display: flex; flex-direction: column; gap: 22px; overflow: auto; scrollbar-width: thin; }
 .mission-context h1 { font-weight: 450; letter-spacing: -.025em; font-size: 27px; line-height: 1.1; margin-bottom: 12px; text-wrap: balance; }
 .mission-context .eyebrow { font-size: 8px; }

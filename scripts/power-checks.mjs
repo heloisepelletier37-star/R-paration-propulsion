@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { openHatchByKeyboard } from './hatch-checks.mjs';
 
 export async function openPowerControls(page) {
   if (!await page.locator('#power-controls').evaluate(element => element.open)) await page.locator('#power-controls summary').click();
@@ -25,7 +26,8 @@ async function begin(page, mode) {
   await page.waitForSelector('#app[data-phase="running"]');
 }
 async function finishRemaining(page) {
-  for (let index = 0; index < 4; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await openHatchByKeyboard(page);
+  for (let index = 0; index < 3; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
 }
 
@@ -105,7 +107,8 @@ export async function runPowerChecks(page, artifacts) {
     assert.ok(after.visual.ledEmissive.every(value => value === 0));
     assert.equal(after.audio.alarmAudible, false); assert.equal(after.audio.volume, 0);
     assert.ok(after.nodes.every(node => node.count === 1));
-    t = await targets(); await page.mouse.click(t.hatch.x, t.hatch.y);
+    // Touch the face away from the central safety screw, now active in stage 2.
+    t = await targets(); await page.mouse.click(t.hatch.x + 30, t.hatch.y + 30);
   } else {
     await page.locator('#power-lever').focus();
     for (let index = 0; index < 7; index++) await page.keyboard.down('ArrowDown');

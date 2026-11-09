@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createMachine, briefingCount, stepStatus } from '../src/state/machine.js';
 import { STEPS, TOOLS, canAct, sceneState } from '../src/state/procedure.js';
 import { textes as t } from '../src/ui/textes.js';
+import { openHatch } from '../test-support/procedure.js';
 const clocks = new WeakMap();
 
 function session(mode = 'training') {
@@ -25,6 +26,7 @@ function start(mode = 'training') {
   return result;
 }
 function validate(machine) {
+  if (machine.state.stepIndex === 1 && machine.state.phase === 'running') { openHatch(machine, clocks.get(machine)); return true; }
   if (machine.state.stepIndex === 0 && machine.state.phase === 'running') {
     machine.dispatch({ type: 'OPEN_POWER_COVER' });
     clocks.get(machine)(400);
@@ -107,20 +109,20 @@ test('stages cannot be skipped, and a stale debug validation never validates the
   assert.equal(machine.state.phase, 'debrief');
   assert.equal(machine.state.repairLocked, true);
   assert.equal(machine.state.validations.length, 5);
-  assert.deepEqual(machine.state.validations.map(item => item.source), ['gesture', 'debug', 'debug', 'debug', 'debug']);
+  assert.deepEqual(machine.state.validations.map(item => item.source), ['gesture', 'gesture', 'debug', 'debug', 'debug']);
 });
 
 test('normal validation requires every substep of the current stage', () => {
   const { machine } = start();
-  validate(machine);
-  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'open' }), false);
-  assert.equal(machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'wires', substepId: 'inspect' }), false);
-  machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'open', substepId: 'driver' });
-  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'open' }), false);
-  for (const substepId of ['screws', 'hatch']) machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'open', substepId });
-  machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'open' });
-  assert.equal(machine.state.stepIndex, 2);
-  assert.equal(machine.state.validations[1].source, 'gesture');
+  validate(machine); validate(machine);
+  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'wires' }), false);
+  assert.equal(machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'close', substepId: 'hatch' }), false);
+  for (const substepId of ['inspect', 'mark', 'remove', 'prepare']) machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'wires', substepId });
+  assert.equal(machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'wires' }), false);
+  machine.dispatch({ type: 'COMPLETE_SUBSTEP', stepId: 'wires', substepId: 'connect' });
+  machine.dispatch({ type: 'VALIDATE_STEP', stepId: 'wires' });
+  assert.equal(machine.state.stepIndex, 3);
+  assert.equal(machine.state.validations[2].source, 'gesture');
 });
 
 test('replaying the briefing locks actions and preserves progress, errors, tools and active time', () => {

@@ -6,14 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { resolveConfig } from 'vite';
 import { powerOffByKeyboard, runPowerChecks } from './power-checks.mjs';
+import { openHatchByKeyboard, runHatchChecks } from './hatch-checks.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const externalTarget = process.argv[2];
+const externalTarget = process.argv.slice(2).find(argument => !argument.startsWith('--'));
+const hatchOnly = process.argv.includes('--hatch');
 const { base } = await resolveConfig({ root }, 'serve');
 const target = externalTarget ?? new URL(base, 'http://127.0.0.1:5199/').href;
 const executablePath = process.env.CHROMIUM_PATH ?? ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser'].find(existsSync);
 assert.ok(executablePath, 'Set CHROMIUM_PATH to an installed Chrome or Chromium executable.');
-const artifacts = fileURLToPath(new URL('../.artifacts/', import.meta.url));
+const artifacts = process.env.MARS_ARTIFACT_DIR ?? fileURLToPath(new URL('../.artifacts/', import.meta.url));
 await mkdir(artifacts, { recursive: true });
 let server;
 let serverOutput = '';
@@ -40,6 +42,9 @@ try {
   page.on('response', response => { if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`); });
   await page.goto(target);
   await page.waitForSelector('#app[data-ready="true"][data-phase="welcome"]');
+  if (hatchOnly) {
+    await runHatchChecks(page, artifacts, powerOffByKeyboard);
+  } else {
   await page.screenshot({ path: `${artifacts}/accueil.png` });
   assert.equal(await page.locator('#welcome').getAttribute('role'), 'dialog');
   assert.equal(await page.locator('input[value="training"]').isChecked(), true);
@@ -102,7 +107,7 @@ try {
   await page.waitForSelector('#app[data-phase="running"]');
   assert.equal(await page.locator('[aria-current="step"]').getAttribute('data-step'), 'open');
   assert.equal(await page.locator('[data-tool="flat"]').getAttribute('aria-pressed'), 'true');
-  await page.locator('#debug-validate').click();
+  await openHatchByKeyboard(page);
   await page.waitForSelector('[data-step="wires"][aria-current="step"]');
   assert.equal(await page.locator('.substeps li').count(), 5);
   await page.locator('#help').click();
@@ -146,13 +151,21 @@ try {
   assert.equal(await page.locator('#error-count').textContent(), 'Au bilan');
   assert.ok((await page.locator('#radio-text').textContent()).includes('Tu avances en autonomie.'));
   await powerOffByKeyboard(page);
-  for (let index = 0; index < 4; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
+  await openHatchByKeyboard(page);
+  for (let index = 0; index < 3; index++) { await page.locator('#debug-validate').click(); await page.waitForTimeout(100); }
   await page.waitForSelector('#app[data-phase="debrief"]');
   assert.equal(await page.locator('#error-count').textContent(), '1');
   assert.equal(await page.locator('[data-step="power"] .error-marker').count(), 1);
   await runPowerChecks(page, artifacts);
+  await runHatchChecks(page, artifacts, powerOffByKeyboard);
+  }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, training: '6-message lock, tools, hints, errors, replay, five stages, debrief', evaluation: '1-message lock, no help, hidden feedback until debrief', layout: 'desktop and mobile, no overlap', consoleErrors: errors, artifacts }, null, 2));
+  console.log(JSON.stringify(hatchOnly ? { passed: true, scope: 'hatch gestures', consoleErrors: errors, artifacts }
+    : { passed: true, training: '6-message lock, tools, hints, errors, replay, five stages, debrief', evaluation: '1-message lock, no help, hidden feedback until debrief', layout: 'desktop and mobile, no overlap', consoleErrors: errors, artifacts }, null, 2));
+} catch (error) {
+  const page = browser?.contexts()[0]?.pages()[0];
+  if (page) await page.screenshot({ path: `${artifacts}/echec-parcours.png` }).catch(() => {});
+  throw error;
 } finally {
   await browser?.close();
   if (server && server.exitCode === null) server.kill('SIGTERM');
