@@ -7,6 +7,7 @@ export function createAlarmAudio(camera, alarm) {
   let enabled = false;
   let requested = false;
   let alarmAudible = false;
+  let lastEffect = null;
   return {
     async setEnabled(value) {
       requested = Boolean(value);
@@ -45,15 +46,22 @@ export function createAlarmAudio(camera, alarm) {
     },
     effect(kind) {
       if (!enabled || listener.context.state !== 'running') return;
+      lastEffect = kind;
       const context = listener.context;
-      const duration = kind === 'shock' ? 0.13 : 0.055;
+      const profile = {
+        shock: [0.13, 'sawtooth', 2500, 140, 0.035], switch: [0.055, 'square', 180, 65, 0.06],
+        screw: [0.06, 'triangle', 390, 190, 0.025], slip: [0.18, 'sawtooth', 1800, 320, 0.035],
+        blocked: [0.08, 'triangle', 110, 55, 0.05], hatch: [0.12, 'square', 150, 50, 0.035],
+      }[kind];
+      if (!profile) return;
+      const [duration, type, startFrequency, endFrequency, gain] = profile;
       const envelope = context.createGain();
       const note = context.createOscillator();
-      note.type = kind === 'shock' ? 'sawtooth' : 'square';
-      note.frequency.setValueAtTime(kind === 'shock' ? 2500 : 180, context.currentTime);
-      note.frequency.exponentialRampToValueAtTime(kind === 'shock' ? 140 : 65, context.currentTime + duration);
+      note.type = type;
+      note.frequency.setValueAtTime(startFrequency, context.currentTime);
+      note.frequency.exponentialRampToValueAtTime(endFrequency, context.currentTime + duration);
       envelope.gain.setValueAtTime(0.0001, context.currentTime);
-      envelope.gain.exponentialRampToValueAtTime(kind === 'shock' ? 0.035 : 0.06, context.currentTime + 0.005);
+      envelope.gain.exponentialRampToValueAtTime(gain, context.currentTime + 0.005);
       envelope.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
       note.connect(envelope); envelope.connect(listener.getInput());
       note.onended = () => { note.disconnect(); envelope.disconnect(); };
@@ -61,8 +69,15 @@ export function createAlarmAudio(camera, alarm) {
     },
     update(elapsed, powered = true, alarmActive = true) {
       alarmAudible = enabled && powered && alarmActive && elapsed % 1 < 0.12;
-      if (sound) sound.setVolume(alarmAudible ? 0.045 : 0);
+      if (!sound) return;
+      if (!powered || !alarmActive || !enabled) {
+        // Electrical isolation must silence the alarm immediately, without the
+        // short smoothing ramp used for its normal periodic beeps.
+        const time = listener.context.currentTime;
+        sound.gain.gain.cancelScheduledValues(time);
+        sound.gain.gain.setValueAtTime(0, time);
+      } else sound.setVolume(alarmAudible ? 0.045 : 0);
     },
-    snapshot() { return { enabled, alarmAudible, volume: sound?.getVolume() ?? 0 }; },
+    snapshot() { return { enabled, alarmAudible, volume: sound?.getVolume() ?? 0, lastEffect }; },
   };
 }

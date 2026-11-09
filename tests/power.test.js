@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { openHatch } from '../test-support/procedure.js';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createMachine } from '../src/state/machine.js';
@@ -134,7 +135,8 @@ test('evaluation records the discharge without adding intermediate coaching', ()
   s.advance(SHOCK_DURATION_MS); machine.dispatch({ type: 'SHOCK_FINISHED', shockId: 1 });
   openCover(s); drag(machine, 1);
   assert.equal(machine.state.steps[0].errors.length, 1);
-  for (const stepId of ['open', 'wires', 'close', 'test']) machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId });
+  openHatch(machine, s.advance);
+  for (const stepId of ['wires', 'close', 'test']) machine.dispatch({ type: 'DEBUG_VALIDATE_STEP', stepId });
   assert.ok(machine.state.messageQueue.some(item => item.text.includes(textes.errors.liveCircuit.rule)));
 });
 

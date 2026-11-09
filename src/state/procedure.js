@@ -18,6 +18,7 @@ export const TOOLS = [
 export const canAct = state => state.phase === 'running' && !state.shock?.active;
 export const currentStep = state => STEPS[state.stepIndex];
 export const canUseBreaker = state => canAct(state) && state.stepIndex === 0 && state.power.circuitOn;
+export const canOpenHatch = state => canAct(state) && state.stepIndex === 1 && !state.power.circuitOn && !state.hatch.opened && !state.hatch.settling;
 export const sceneState = state => ({
   circuitOn: state.power.circuitOn,
   hatchOpen: state.steps[1].completed && !state.steps[3].completed,

@@ -1,5 +1,6 @@
-import { STEPS, TOOLS, canAct, currentStep, canUseBreaker } from './procedure.js';
+import { STEPS, TOOLS, canAct, currentStep, canUseBreaker, canOpenHatch } from './procedure.js';
 import { initialPowerState, COVER_DURATION_MS, SHOCK_DURATION_MS, clampProgress, passesThreshold, HATCH_TARGETS, isScrewdriver } from '../steps/step1-power.js';
+import { initialHatchState, ALL_SCREWS, SAFETY_SCREW, removed, removedCount, TAU, TURNS_REQUIRED, HATCH_SETTLE_MS } from '../steps/step2-hatch.js';
 import { textes as t } from '../ui/textes.js';
 
 export const briefingCount = state => state.mode === 'evaluation' ? 1 : t.briefing.length;
@@ -22,7 +23,7 @@ function initialState(audio = false) {
     briefingIndex: 0, resume: null, sequence: 0, message: null, messageQueue: [],
     radioCollapsed: false, unread: false, selectedTool: null, headlamp: false, audio,
     errors: [], hintsUsed: 0, hintLog: [], validations: [],
-    power: initialPowerState(), shock: { id: 0, active: false, at: null, until: null, point: null },
+    power: initialPowerState(), hatch: initialHatchState(), shock: { id: 0, active: false, at: null, until: null, point: null },
     elapsedMs: 0, clockAt: null, lastActivityAt: 0, idlePrompted: false,
   };
 }
@@ -41,6 +42,25 @@ function cancelDrag(state) {
   if (!state.power.dragging) return;
   Object.assign(state.power, { dragging: false, leverProgress: 0, lastRelease: 'cancelled',
     dragId: state.power.dragId + 1, releaseId: state.power.releaseId + 1 });
+}
+
+function cancelHatch(state) {
+  const h = state.hatch;
+  if (h.dragging) h.progress = h.dragOrigin;
+  if (h.turning || h.dragging) h.gestureId++;
+  h.turning = false; h.dragging = false; h.reverseDebt = 0;
+}
+
+function hatchFeedback(state, code, screwId = state.hatch.selectedScrew, sound = null) {
+  Object.assign(state.hatch, { feedbackCode: code, feedbackScrew: screwId, feedbackId: state.hatch.feedbackId + 1 });
+  if (sound) { state.hatch.soundId++; state.hatch.soundKind = sound; }
+}
+
+function hatchError(state, code, time, screwId) {
+  const error = { stepId: 'open', code, nodeName: screwId, source: 'gesture', atMs: state.elapsedMs };
+  state.errors.push(error); state.steps[1].errors.push(error);
+  if (state.mode === 'training') showMessages(state, [message(t.errors[code].why, 'error', 'error')]);
+  activity(state, time);
 }
 
 function message(text, topic = 'step', kind = 'instruction', demo = null) {
@@ -103,6 +123,7 @@ function finishStep(state, time, source) {
     showMessages(state, debriefMessages(state));
   } else {
     state.stepIndex++;
+    if (state.stepIndex === 1 && state.selectedTool === 'phillips') state.steps[1].substeps.driver = true;
     showMessages(state, state.mode === 'training' ? [
       message(t.steps[step.id].success, 'success', 'success'),
       message(t.steps[currentStep(state).id].intro),
@@ -145,6 +166,7 @@ function reduce(state, event, time) {
       if (!['running', 'debrief', 'complete'].includes(state.phase)) return state;
       const s = next();
       cancelDrag(s);
+      cancelHatch(s);
       s.resume = { phase: s.phase, message: s.message, queue: s.messageQueue };
       s.phase = 'briefing'; s.briefingIndex = 0; s.radioCollapsed = false; showBriefing(s); return s;
     }
@@ -157,7 +179,8 @@ function reduce(state, event, time) {
     }
     case 'SELECT_TOOL': {
       if (!canAct(state) || (event.toolId !== null && !TOOLS.some(tool => tool.id === event.toolId))) return state;
-      const s = next(); s.selectedTool = s.selectedTool === event.toolId ? null : event.toolId;
+      const s = next(); cancelHatch(s); s.selectedTool = s.selectedTool === event.toolId ? null : event.toolId;
+      if (s.stepIndex === 1 && s.selectedTool === 'phillips') s.steps[1].substeps.driver = true;
       activity(s, time); return s;
     }
     case 'TOGGLE_LAMP': {
@@ -225,7 +248,7 @@ function reduce(state, event, time) {
     }
     case 'TOUCH_HATCH': {
       if (!canAct(state) || !state.power.circuitOn || !isScrewdriver(state.selectedTool) || !HATCH_TARGETS.includes(event.nodeName)) return state;
-      const s = next(); cancelDrag(s); s.stepIndex = 0;
+      const s = next(); cancelDrag(s); cancelHatch(s); s.hatch = initialHatchState(); s.stepIndex = 0;
       for (const step of s.steps) {
         step.completed = false;
         Object.keys(step.substeps).forEach(id => { step.substeps[id] = false; });
@@ -246,15 +269,97 @@ function reduce(state, event, time) {
       if (!state.shock.active || event.shockId !== state.shock.id || time < state.shock.until) return state;
       const s = next(); s.shock.active = false; return s;
     }
+    case 'SELECT_SCREW': {
+      if (!canOpenHatch(state) || !ALL_SCREWS.includes(event.screwId) || removed(state.hatch.screws[event.screwId])) return state;
+      const s = next(); cancelHatch(s); s.hatch.selectedScrew = event.screwId; activity(s, time); return s;
+    }
+    case 'SCREW_TURN_START': {
+      const id = event.screwId ?? state.hatch.selectedScrew;
+      if (!canOpenHatch(state) || state.hatch.turning || state.hatch.dragging || !ALL_SCREWS.includes(id) || removed(state.hatch.screws[id])) return state;
+      const s = next(); s.hatch.selectedScrew = id; activity(s, time);
+      if (!isScrewdriver(s.selectedTool)) { hatchFeedback(s, 'toolRequired'); return s; }
+      if (id === SAFETY_SCREW) {
+        hatchError(s, 'safetyScrew', time, id); hatchFeedback(s, 'safety', id, 'blocked'); return s;
+      }
+      if (s.selectedTool !== 'phillips') {
+        s.hatch.screws[id].scratched = true;
+        hatchError(s, 'wrongDriver', time, id); hatchFeedback(s, 'slip', id, 'slip'); return s;
+      }
+      Object.assign(s.hatch, { turning: true, gestureId: s.hatch.gestureId + 1, reverseDebt: 0, directionWarned: false });
+      s.steps[1].substeps.driver = true; hatchFeedback(s, 'turning'); return s;
+    }
+    case 'SCREW_TURN_MOVE': {
+      const h = state.hatch;
+      if (!canOpenHatch(state) || !h.turning || event.gestureId !== h.gestureId || !Number.isFinite(event.radians)
+          || event.radians === 0 || Math.abs(event.radians) > Math.PI / 2 + 1e-8) return state;
+      const s = next(); const target = s.hatch; const screw = target.screws[target.selectedScrew];
+      activity(s, time);
+      if (event.radians < 0) {
+        target.reverseDebt += -event.radians;
+        if (!target.directionWarned) {
+          target.directionWarned = true; hatchFeedback(s, 'clockwise', target.selectedScrew, 'blocked');
+          if (s.mode === 'training') showMessages(s, [message(t.hatchControls.clockwise, 'step')]);
+        }
+        return s;
+      }
+      const usable = Math.max(0, event.radians - target.reverseDebt);
+      target.reverseDebt = Math.max(0, target.reverseDebt - event.radians);
+      const before = screw.turns;
+      screw.turns = Math.min(TURNS_REQUIRED, before + usable / TAU);
+      if (screw.turns > TURNS_REQUIRED - 1e-8) screw.turns = TURNS_REQUIRED;
+      if (Math.floor(screw.turns * 4) > Math.floor(before * 4)) { target.soundId++; target.soundKind = 'screw'; }
+      if (removed(screw)) {
+        target.turning = false;
+        hatchFeedback(s, 'removed');
+        s.steps[1].substeps.screws = removedCount(target) === 4;
+      } else if (Math.floor(screw.turns) > Math.floor(before)) hatchFeedback(s, 'quarter');
+      return s;
+    }
+    case 'SCREW_TURN_END': {
+      if (!state.hatch.turning || event.gestureId !== state.hatch.gestureId) return state;
+      const s = next(); cancelHatch(s); activity(s, time); return s;
+    }
+    case 'HATCH_DRAG_START': {
+      if (!canOpenHatch(state) || state.hatch.turning || state.hatch.dragging) return state;
+      const s = next(); activity(s, time);
+      if (removedCount(s.hatch) !== 4) { hatchFeedback(s, 'fastened', null, 'blocked'); return s; }
+      if (event.edge === false) { hatchFeedback(s, 'edge', null); return s; }
+      Object.assign(s.hatch, { dragging: true, gestureId: s.hatch.gestureId + 1, dragOrigin: s.hatch.progress });
+      hatchFeedback(s, 'pull', null); return s;
+    }
+    case 'HATCH_DRAG_MOVE': {
+      if (!canOpenHatch(state) || !state.hatch.dragging || event.gestureId !== state.hatch.gestureId || !Number.isFinite(event.progress)) return state;
+      const s = next(); s.hatch.progress = clampProgress(event.progress); activity(s, time); return s;
+    }
+    case 'HATCH_DRAG_END': {
+      if (!canOpenHatch(state) || !state.hatch.dragging || event.gestureId !== state.hatch.gestureId) return state;
+      const s = next(); s.hatch.dragging = false; activity(s, time);
+      if (s.hatch.progress >= 1) {
+        Object.assign(s.hatch, { settling: true, settleId: s.hatch.settleId + 1, settleStartedAt: time });
+      }
+      return s;
+    }
+    case 'HATCH_DRAG_CANCEL': {
+      if (!state.hatch.dragging || event.gestureId !== state.hatch.gestureId) return state;
+      const s = next(); cancelHatch(s); return s;
+    }
+    case 'HATCH_OPENED': {
+      if (!canAct(state) || state.stepIndex !== 1 || state.power.circuitOn || !state.hatch.settling
+          || event.settleId !== state.hatch.settleId || time - state.hatch.settleStartedAt < HATCH_SETTLE_MS
+          || removedCount(state.hatch) !== 4) return state;
+      const s = next(); s.hatch.settling = false; s.hatch.opened = true;
+      s.steps[1].substeps.hatch = true; hatchFeedback(s, 'opened', null, 'hatch');
+      finishStep(s, time, 'gesture'); return s;
+    }
     case 'COMPLETE_SUBSTEP': {
-      if (!canAct(state) || event.stepId === 'power' || event.stepId !== currentStep(state).id
+      if (!canAct(state) || ['power', 'open'].includes(event.stepId) || event.stepId !== currentStep(state).id
           || !currentStep(state).substeps.includes(event.substepId)
           || state.steps[state.stepIndex].substeps[event.substepId]) return state;
       const s = next(); s.steps[s.stepIndex].substeps[event.substepId] = true; activity(s, time); return s;
     }
     case 'VALIDATE_STEP':
     case 'DEBUG_VALIDATE_STEP': {
-      if (!canAct(state) || event.stepId === 'power' || event.stepId !== currentStep(state).id) return state;
+      if (!canAct(state) || ['power', 'open'].includes(event.stepId) || event.stepId !== currentStep(state).id) return state;
       if (event.type === 'VALIDATE_STEP' && !Object.values(state.steps[state.stepIndex].substeps).every(Boolean)) return state;
       const s = next();
       if (event.type === 'DEBUG_VALIDATE_STEP') {
