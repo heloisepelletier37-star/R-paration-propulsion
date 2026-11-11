@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Test — démarrage en iframe</title>
+    <link rel="icon" href="data:,">
+  </head>
+  <body>
+    <h1>Démarrage sans permissions facultatives</h1>
+    <p>Cette iframe autorise les scripts, mais pas les formulaires, le stockage, la capture souris, les dialogues ni le plein écran.</p>
+    <iframe id="simulation" title="Réparer la propulsion" src="./"
+      sandbox="allow-scripts" allow="autoplay 'none'; fullscreen 'none'"
+      style="width: 100%; height: 760px; border: 0"></iframe>
+  </body>
+</html>

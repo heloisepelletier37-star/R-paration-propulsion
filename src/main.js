@@ -57,7 +57,10 @@ async function start() {
   lamp.position.set(0.08, 0.08, -0.05);
   lamp.target.position.set(0, 0, -4);
   view.camera.add(lamp, lamp.target);
-  const audio = createAlarmAudio(view.camera, alarm);
+  const audio = createAlarmAudio(view.camera, alarm, () => {
+    machine.dispatch({ type: 'SET_AUDIO', enabled: false });
+    hud.feedback(textes.controls.audioError);
+  });
   const heldTool = createHeldTool(view.camera, root);
   const projection = createProcedureProjection(root, renderer);
   const wiring = createWiringScene(scene, root, renderer);
@@ -88,6 +91,7 @@ async function start() {
       const actual = await audio.setEnabled(enabled);
       if (request !== audioRequest) return;
       machine.dispatch({ type: 'SET_AUDIO', enabled: actual });
+      if (enabled && !actual) hud.feedback(textes.controls.audioError);
       notifyMessage(machine.state);
     } catch {
       if (request === audioRequest) {
@@ -101,9 +105,12 @@ async function start() {
 
   hud.connect(event => {
     if (event.type === 'TOUCH_HATCH' && !event.point) event = { ...event, point: projection.targetPoint('Hatch').toArray() };
-    if (event.type === 'START' && machine.state.phase === 'welcome') void setAudio(event.audio);
-    const changed = machine.dispatch(event);
+    const starting = event.type === 'START' && machine.state.phase === 'welcome';
+    // Starting the mission never depends on an optional browser permission.
+    // Enable audio separately: resume() can reject or remain pending in an iframe.
+    const changed = machine.dispatch(starting ? { ...event, audio: false } : event);
     if (changed && ['START', 'RESTART'].includes(event.type)) view.reset();
+    if (changed && starting) void setAudio(event.audio);
     if (changed && event.type === 'SELECT_TOOL') {
       const id = machine.state.selectedTool;
       hud.feedback(id ? textes.tools.selected(textes.tools[id].detail) : textes.tools.none);

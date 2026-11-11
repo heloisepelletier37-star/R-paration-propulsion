@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function createAlarmAudio(camera, alarm) {
+export function createAlarmAudio(camera, alarm, onUnavailable = () => {}) {
   let listener;
   let sound;
   let oscillator;
@@ -8,9 +8,31 @@ export function createAlarmAudio(camera, alarm) {
   let requested = false;
   let alarmAudible = false;
   let lastEffect = null;
+  let unavailable = false;
   const effects = new Set();
+
+  function disable() {
+    unavailable = true;
+    enabled = false;
+    requested = false;
+    alarmAudible = false;
+    try { sound?.setVolume(0); } catch { /* Audio may be forbidden by the host. */ }
+    onUnavailable();
+    return false;
+  }
+
+  // Audio is optional, including its synchronous setup, async resume and effects.
+  // A partial/failed setup must not interrupt state updates or the render loop.
+  const optional = action => (...args) => {
+    if (unavailable) return false;
+    try {
+      const result = action(...args);
+      return result instanceof Promise ? result.catch(disable) : result;
+    } catch { return disable(); }
+  };
+
   return {
-    async setEnabled(value) {
+    setEnabled: optional(async value => {
       requested = Boolean(value);
       if (!requested && !listener) return false;
       if (!listener) {
@@ -27,14 +49,14 @@ export function createAlarmAudio(camera, alarm) {
         oscillator.start();
       }
       if (requested) await listener.context.resume();
-      enabled = requested;
+      enabled = requested && listener.context.state === 'running';
       if (!enabled) {
         sound.setVolume(0);
         for (const effect of effects) { effect.envelope.gain.cancelScheduledValues(listener.context.currentTime); effect.envelope.gain.setValueAtTime(0, listener.context.currentTime); }
       }
       return enabled;
-    },
-    ping() {
+    }),
+    ping: optional(() => {
       if (!enabled || listener.context.state !== 'running') return false;
       const context = listener.context;
       const note = context.createOscillator();
@@ -47,8 +69,8 @@ export function createAlarmAudio(camera, alarm) {
       note.onended = () => { note.disconnect(); envelope.disconnect(); };
       note.start(); note.stop(context.currentTime + 0.1);
       return true;
-    },
-    effect(kind) {
+    }),
+    effect: optional(kind => {
       if (!enabled || listener.context.state !== 'running') return;
       lastEffect = kind;
       const context = listener.context;
@@ -72,8 +94,8 @@ export function createAlarmAudio(camera, alarm) {
       const effect = { note, envelope }; effects.add(effect);
       note.onended = () => { effects.delete(effect); note.disconnect(); envelope.disconnect(); };
       note.start(); note.stop(context.currentTime + duration + 0.01);
-    },
-    update(elapsed, powered = true, alarmActive = true) {
+    }),
+    update: optional((elapsed, powered = true, alarmActive = true) => {
       alarmAudible = enabled && powered && alarmActive && elapsed % 1 < 0.12;
       if (!sound) return;
       if (!powered || !alarmActive || !enabled) {
@@ -83,10 +105,10 @@ export function createAlarmAudio(camera, alarm) {
         sound.gain.gain.cancelScheduledValues(time);
         sound.gain.gain.setValueAtTime(0, time);
       } else sound.setVolume(alarmAudible ? 0.045 : 0);
-    },
-    stopEffects() {
+    }),
+    stopEffects: optional(() => {
       for (const effect of effects) { effect.envelope.gain.cancelScheduledValues(listener.context.currentTime); effect.envelope.gain.setValueAtTime(0, listener.context.currentTime); effect.note.stop(); }
-    },
-    snapshot() { return { enabled, alarmAudible, volume: sound?.getVolume() ?? 0, lastEffect }; },
+    }),
+    snapshot() { return { enabled, alarmAudible, volume: unavailable ? 0 : sound?.getVolume() ?? 0, lastEffect }; },
   };
 }

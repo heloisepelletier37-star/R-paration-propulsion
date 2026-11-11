@@ -134,9 +134,14 @@ export function createHud() {
     if (state?.radioCollapsed) return emit({ type: 'TOGGLE_RADIO' });
     if (state?.message) emit({ type: 'MESSAGE_NEXT', messageId: state.message.id });
   };
-  $('#welcome-form').addEventListener('submit', event => {
-    event.preventDefault(); emit({ type: 'START', mode: new FormData(event.currentTarget).get('mode'), audio: $('#welcome-sound').checked });
-  });
+  const startMission = event => {
+    event.preventDefault();
+    emit({ type: 'START', mode: new FormData($('#welcome-form')).get('mode'), audio: $('#welcome-sound').checked });
+  };
+  // A sandboxed iframe can block form submission before the submit event.
+  // Handle the button directly (including Enter/Space) without submitting.
+  $('#welcome-form .start-button').addEventListener('click', startMission);
+  $('#welcome-form').addEventListener('submit', startMission);
   $('#radio-next').addEventListener('click', advance);
   $('#radio-toggle').addEventListener('click', () => emit({ type: 'TOGGLE_RADIO' }));
   $('#briefing').addEventListener('click', () => emit({ type: 'REPLAY_BRIEFING' }));

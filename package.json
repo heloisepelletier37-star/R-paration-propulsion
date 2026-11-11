@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.js",
-    "test:browser": "node scripts/check-pedagogy.mjs"
+    "test:browser": "node scripts/check-pedagogy.mjs",
+    "test:iframe": "npm run build && node scripts/check-iframe.mjs"
   },
   "dependencies": {
     "three": "0.187.0"
