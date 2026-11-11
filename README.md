@@ -16,6 +16,7 @@ Ouvre l’adresse affichée par Vite. La configuration utilise un chemin relatif
 ```sh
 npm test          # 96 tests : scène, cinq étapes, sécurité, bilan et reprise après défaut
 npm run test:browser # Parcours fonctionnel dans Chromium ; lance son serveur Vite
+npm run test:iframe # Compile et vérifie le démarrage dans une iframe restrictive
 npm run build    # Produit le site statique dans dist/
 npm run preview  # Sert le build compilé, au même chemin
 ```
@@ -25,6 +26,14 @@ Dans le sandbox cloud, utilise si nécessaire un cache accessible :
 ```sh
 export npm_config_cache=/workspace/.environment/npm-cache
 ```
+
+### Intégration en iframe (Genially)
+
+Le bouton « Commencer la mission » lance la simulation sans soumettre de formulaire : il fonctionne même si l’iframe n’autorise pas `allow-forms`. Le son est facultatif ; un refus ou une attente de l’autorisation audio ne bloque ni le briefing ni la mission. Le démarrage n’utilise pas `localStorage`, `requestPointerLock`, `requestFullscreen`, `alert` ou `confirm` et ne dépend donc pas de leurs permissions.
+
+`npm run test:iframe` sert le build dans la page [public/iframe-test.html](public/iframe-test.html), avec `sandbox="allow-scripts"`, sans stockage, formulaires, capture souris, dialogues ou plein écran. Il vérifie les deux modes, les refus audio (création, reprise et lecture), une reprise audio qui reste en attente et le démarrage hors iframe. Capture : `.artifacts/iframe-start.png`.
+
+Cette page est incluse dans `dist/`. Après publication, ouvrir `iframe-test.html` à côté de la page principale du site pour vérifier l’intégration sur le même hébergement que la simulation. Les changements locaux ne mettent pas à jour le site utilisé par Genially : le workflow GitHub Pages ne publie qu’après leur intégration dans `main`.
 
 ## Ce qui fonctionne à cette étape
 
